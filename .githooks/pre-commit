@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "pre-commit: cargo is not installed or not in PATH" >&2
+  exit 1
+fi
+
+if ! command -v black >/dev/null 2>&1; then
+  echo "pre-commit: black is not installed or not in PATH" >&2
+  exit 1
+fi
+
+echo "[INFO] pre-commit: running formatters..."
+cargo fmt --all
+black .
+echo "[ OK ] pre-commit: running formatters DONE"
+
+echo "[INFO] pre-commit: generating docs..."
+cargo doc --workspace --no-deps --quiet
+echo "[ OK ] pre-commit: generating docs DONE"
+
+echo "[INFO] pre-commit: running tests..."
+cargo test --workspace --quiet
+echo "[ OK ] pre-commit: running tests DONE"
+
+# Stage files changed by formatter so commit includes formatting updates.
+git add -u
