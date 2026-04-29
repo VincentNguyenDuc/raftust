@@ -5,13 +5,10 @@ use std::time::{Duration, Instant};
 
 use raftust_core::{AppendEntriesResponse, NodeId, OutboundRpc, RaftNode, RequestVoteResponse};
 
-mod app_config;
-mod transport;
-mod wire;
-
-use app_config::parse_config;
-use transport::{send_to_peer, spawn_listener, spawn_stdin_reader};
-use wire::{
+use config::parse_config;
+use raftust_core::config;
+use raftust_core::transport::network::{send_to_peer, spawn_listener, spawn_stdin_reader};
+use raftust_core::transport::wire::{
     WireMessage, WirePayload, from_wire_append_entries, from_wire_request_vote,
     outbound_rpc_to_wire,
 };

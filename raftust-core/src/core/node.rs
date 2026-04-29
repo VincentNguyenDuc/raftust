@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::state_machine::apply_command;
-use crate::types::{
+use super::state_machine::apply_command;
+use super::types::{
     AppendEntries, AppendEntriesResponse, LogEntry, NodeId, OutboundRpc, RequestVote,
     RequestVoteResponse, Role, Term,
 };

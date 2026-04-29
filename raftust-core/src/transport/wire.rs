@@ -1,4 +1,4 @@
-use raftust_core::{AppendEntries, LogEntry, NodeId, OutboundRpc, RequestVote};
+use crate::{AppendEntries, LogEntry, NodeId, OutboundRpc, RequestVote};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

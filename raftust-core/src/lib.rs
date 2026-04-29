@@ -1,9 +1,9 @@
-mod node;
-mod state_machine;
-mod types;
+pub mod config;
+pub mod transport;
 
-pub use node::RaftNode;
-pub use types::{
+mod core;
+pub use core::node::RaftNode;
+pub use core::types::{
     AppendEntries, AppendEntriesResponse, LogEntry, NodeId, OutboundRpc, RequestVote,
     RequestVoteResponse, Role, Term,
 };

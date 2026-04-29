@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use raftust_core::NodeId;
+use crate::core::types::NodeId;
 
 #[derive(Debug)]
 pub struct Config {

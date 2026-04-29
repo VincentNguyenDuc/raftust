@@ -1,3 +1,3 @@
 [workspace]
-members = ["raftust-core"]
+members = ["raftust-core", "raftust-example"]
 resolver = "2" # Recommended for modern projects
