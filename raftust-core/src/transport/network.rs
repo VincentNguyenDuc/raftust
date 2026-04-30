@@ -1,12 +1,49 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread;
 
 use crate::NodeId;
+use crate::transport::TransportStrategy;
 
 use super::wire::WireMessage;
+
+pub struct NetworkTransport {
+    peer_addrs: HashMap<NodeId, String>,
+    inbound_rx: Option<Receiver<WireMessage>>,
+}
+
+impl NetworkTransport {
+    pub fn new(peer_addrs: HashMap<NodeId, String>) -> Self {
+        Self {
+            peer_addrs,
+            inbound_rx: None,
+        }
+    }
+}
+
+impl TransportStrategy for NetworkTransport {
+    fn start_listener(&mut self, addr: String) -> Result<(), String> {
+        let (tx, rx) = mpsc::channel::<WireMessage>();
+        spawn_listener(addr, tx)?;
+        self.inbound_rx = Some(rx);
+        Ok(())
+    }
+
+    fn try_recv(&mut self) -> Option<WireMessage> {
+        let rx = self.inbound_rx.as_ref()?;
+        match rx.try_recv() {
+            Ok(msg) => Some(msg),
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => None,
+        }
+    }
+
+    fn send(&mut self, msg: WireMessage) {
+        send_to_peer(&self.peer_addrs, msg);
+    }
+}
 
 pub fn send_to_peer(peer_addrs: &HashMap<NodeId, String>, msg: WireMessage) {
     let addr = match peer_addrs.get(&msg.to) {
