@@ -1,33 +1,32 @@
-use std::sync::mpsc::{self, TryRecvError};
+use std::io::{BufRead, BufReader};
+use std::sync::mpsc::{self, Sender, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::communication::{CommunicationError, RaftCommunication, RaftMessage};
 use crate::config::Config;
 use crate::storage::{StorageSnapshot, StorageStrategy};
-use crate::transport::network::spawn_stdin_reader;
-use crate::transport::wire::{
-    WireMessage, WirePayload, from_wire_append_entries, from_wire_request_vote,
-    outbound_rpc_to_wire,
+use crate::{
+    AppendEntriesResponse, InstallSnapshotResponse, OutboundMessage, RaftNode, RequestVoteResponse,
 };
-use crate::{AppendEntriesResponse, OutboundRpc, RaftNode, RequestVoteResponse, TransportStrategy};
 
-pub struct Runner<TTransport, TStorage>
+pub struct Runner<TCommunication, TStorage>
 where
-    TTransport: TransportStrategy,
+    TCommunication: RaftCommunication,
     TStorage: StorageStrategy,
 {
     config: Config,
     node: RaftNode,
-    transport: TTransport,
+    communication: TCommunication,
     storage: TStorage,
 }
 
-impl<TTransport, TStorage> Runner<TTransport, TStorage>
+impl<TCommunication, TStorage> Runner<TCommunication, TStorage>
 where
-    TTransport: TransportStrategy,
+    TCommunication: RaftCommunication,
     TStorage: StorageStrategy,
 {
-    pub fn new(config: Config, transport: TTransport, storage: TStorage) -> Self {
+    pub fn new(config: Config, communication: TCommunication, storage: TStorage) -> Self {
         let peers = config.peer_addrs.keys().copied().collect::<Vec<_>>();
         let node = RaftNode::new(
             config.id,
@@ -39,13 +38,13 @@ where
         Self {
             config,
             node,
-            transport,
+            communication,
             storage,
         }
     }
 
-    pub fn run(&mut self) -> Result<(), String> {
-        self.transport.start_listener(self.config.addr.clone())?;
+    pub fn run(&mut self) -> Result<(), CommunicationError> {
+        self.communication.start(self.config.addr.clone())?;
 
         if let Some(snapshot) = self.storage.load(self.config.id) {
             self.restore_from_snapshot(snapshot);
@@ -70,15 +69,15 @@ where
             if Instant::now() >= next_tick {
                 next_tick += Duration::from_millis(self.config.tick_ms);
                 let outbound = self.node.tick();
-                self.dispatch_outbound(outbound);
+                self.dispatch_outbound(outbound)?;
                 self.persist();
             }
 
-            self.process_network();
+            self.process_communication()?;
 
             match command_rx.try_recv() {
                 Ok(cmd) => {
-                    if !self.process_command(&cmd) {
+                    if !self.process_command(&cmd)? {
                         break;
                     }
                 }
@@ -92,44 +91,23 @@ where
         Ok(())
     }
 
-    fn process_network(&mut self) {
-        while let Some(msg) = self.transport.try_recv() {
-            if msg.to != self.node.id {
-                continue;
-            }
-
-            match msg.payload {
-                WirePayload::RequestVote {
-                    term,
-                    candidate_id,
-                    last_log_index,
-                    last_log_term,
-                } => {
-                    let resp = self.node.handle_request_vote(from_wire_request_vote(
-                        term,
-                        candidate_id,
-                        last_log_index,
-                        last_log_term,
-                    ));
-
-                    let outbound = WireMessage {
-                        from: self.node.id,
-                        to: msg.from,
-                        payload: WirePayload::RequestVoteResponse {
+    fn process_communication(&mut self) -> Result<(), CommunicationError> {
+        while let Some(msg) = self.communication.poll()? {
+            match msg.message {
+                RaftMessage::RequestVote(req) => {
+                    let resp = self.node.handle_request_vote(req);
+                    self.communication.send(
+                        msg.from,
+                        RaftMessage::RequestVoteResponse(RequestVoteResponse {
                             term: resp.term,
                             vote_granted: resp.vote_granted,
-                        },
-                    };
-                    self.transport.send(outbound);
+                            from: self.node.id,
+                        }),
+                    )?;
                     self.persist();
                 }
-                WirePayload::RequestVoteResponse { term, vote_granted } => {
-                    let became_leader =
-                        self.node.handle_request_vote_response(RequestVoteResponse {
-                            term,
-                            vote_granted,
-                            from: msg.from,
-                        });
+                RaftMessage::RequestVoteResponse(resp) => {
+                    let became_leader = self.node.handle_request_vote_response(resp);
 
                     if became_leader {
                         println!(
@@ -137,62 +115,49 @@ where
                             self.node.id, self.node.current_term
                         );
                         let outbound = self.node.tick();
-                        self.dispatch_outbound(outbound);
+                        self.dispatch_outbound(outbound)?;
                     }
                     self.persist();
                 }
-                WirePayload::AppendEntries {
-                    term,
-                    leader_id,
-                    prev_log_index,
-                    prev_log_term,
-                    entries,
-                    leader_commit,
-                } => {
-                    let resp = self.node.handle_append_entries(from_wire_append_entries(
-                        term,
-                        leader_id,
-                        prev_log_index,
-                        prev_log_term,
-                        entries,
-                        leader_commit,
-                    ));
-
-                    let outbound = WireMessage {
-                        from: self.node.id,
-                        to: msg.from,
-                        payload: WirePayload::AppendEntriesResponse {
+                RaftMessage::AppendEntries(req) => {
+                    let resp = self.node.handle_append_entries(req);
+                    self.communication.send(
+                        msg.from,
+                        RaftMessage::AppendEntriesResponse(AppendEntriesResponse {
                             term: resp.term,
                             success: resp.success,
+                            from: self.node.id,
                             match_index: resp.match_index,
-                        },
-                    };
-                    self.transport.send(outbound);
+                        }),
+                    )?;
                     self.persist();
                 }
-                WirePayload::AppendEntriesResponse {
-                    term,
-                    success,
-                    match_index,
-                } => {
-                    let resp = AppendEntriesResponse {
-                        term,
-                        success,
-                        from: msg.from,
-                        match_index,
-                    };
+                RaftMessage::AppendEntriesResponse(resp) => {
                     let outbound = self.node.handle_append_entries_response(resp);
-                    self.dispatch_outbound(outbound);
+                    self.dispatch_outbound(outbound)?;
                     self.persist();
                 }
+                RaftMessage::InstallSnapshot(_req) => {
+                    self.communication.send(
+                        msg.from,
+                        RaftMessage::InstallSnapshotResponse(InstallSnapshotResponse {
+                            term: self.node.current_term,
+                            from: self.node.id,
+                            success: false,
+                        }),
+                    )?;
+                }
+                RaftMessage::InstallSnapshotResponse(_resp) => {}
             }
         }
+
+        Ok(())
     }
 
-    fn process_command(&mut self, cmd: &str) -> bool {
+    fn process_command(&mut self, cmd: &str) -> Result<bool, CommunicationError> {
         let cmd = cmd.trim();
         if cmd.eq_ignore_ascii_case("quit") || cmd.eq_ignore_ascii_case("exit") {
-            return false;
+            return Ok(false);
         }
 
         if cmd.eq_ignore_ascii_case("status") {
@@ -207,7 +172,7 @@ where
                 self.node.last_applied,
                 self.node.state_machine,
             );
-            return true;
+            return Ok(true);
         }
 
         if cmd.eq_ignore_ascii_case("election") {
@@ -216,16 +181,16 @@ where
                 "node {} started election for term {}",
                 self.node.id, self.node.current_term
             );
-            self.dispatch_outbound(outbound);
+            self.dispatch_outbound(outbound)?;
             self.persist();
-            return true;
+            return Ok(true);
         }
 
         if let Some(value) = cmd.strip_prefix("propose ") {
             match self.node.propose_command(value.to_string()) {
                 Some(outbound) => {
                     println!("leader {} accepted proposal: {}", self.node.id, value);
-                    self.dispatch_outbound(outbound);
+                    self.dispatch_outbound(outbound)?;
                     self.persist();
                 }
                 None => {
@@ -235,17 +200,31 @@ where
                     );
                 }
             }
-            return true;
+            return Ok(true);
         }
 
         println!("unknown command: {}", cmd);
-        true
+        Ok(true)
     }
 
-    fn dispatch_outbound(&mut self, outbound: Vec<OutboundRpc>) {
-        for rpc in outbound {
-            self.transport.send(outbound_rpc_to_wire(self.node.id, rpc));
+    fn dispatch_outbound(
+        &mut self,
+        outbound: Vec<OutboundMessage>,
+    ) -> Result<(), CommunicationError> {
+        for outbound_message in outbound {
+            match outbound_message {
+                OutboundMessage::RequestVote { to, message } => {
+                    self.communication
+                        .send(to, RaftMessage::RequestVote(message))?;
+                }
+                OutboundMessage::AppendEntries { to, message } => {
+                    self.communication
+                        .send(to, RaftMessage::AppendEntries(message))?;
+                }
+            }
         }
+
+        Ok(())
     }
 
     fn persist(&mut self) {
@@ -260,4 +239,20 @@ where
         self.node.last_applied = snapshot.last_applied.min(self.node.commit_index);
         self.node.state_machine = snapshot.state_machine;
     }
+}
+
+fn spawn_stdin_reader(tx: Sender<String>) {
+    thread::spawn(move || {
+        let stdin = std::io::stdin();
+        let reader = BufReader::new(stdin);
+        for line in reader.lines() {
+            let line = match line {
+                Ok(line) => line,
+                Err(_) => break,
+            };
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
 }

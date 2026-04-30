@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::state_machine::apply_command;
 use super::types::{
-    AppendEntries, AppendEntriesResponse, LogEntry, NodeId, OutboundRpc, RequestVote,
+    AppendEntries, AppendEntriesResponse, LogEntry, NodeId, OutboundMessage, RequestVote,
     RequestVoteResponse, Role, Term,
 };
 
@@ -59,13 +59,13 @@ impl RaftNode {
         (self.peers.len() + 1) / 2 + 1
     }
 
-    pub fn tick(&mut self) -> Vec<OutboundRpc> {
+    pub fn tick(&mut self) -> Vec<OutboundMessage> {
         match self.role {
             Role::Leader => {
                 self.heartbeat_elapsed += 1;
                 if self.heartbeat_elapsed >= self.heartbeat_interval {
                     self.heartbeat_elapsed = 0;
-                    self.build_heartbeat_rpcs()
+                    self.build_heartbeat_messages()
                 } else {
                     Vec::new()
                 }
@@ -81,7 +81,7 @@ impl RaftNode {
         }
     }
 
-    pub fn start_election(&mut self) -> Vec<OutboundRpc> {
+    pub fn start_election(&mut self) -> Vec<OutboundMessage> {
         self.role = Role::Candidate;
         self.current_term += 1;
         self.voted_for = Some(self.id);
@@ -95,9 +95,9 @@ impl RaftNode {
         self.peers
             .iter()
             .copied()
-            .map(|peer| OutboundRpc::RequestVote {
+            .map(|peer| OutboundMessage::RequestVote {
                 to: peer,
-                rpc: RequestVote {
+                message: RequestVote {
                     term: self.current_term,
                     candidate_id: self.id,
                     last_log_index,
@@ -226,7 +226,7 @@ impl RaftNode {
     pub fn handle_append_entries_response(
         &mut self,
         resp: AppendEntriesResponse,
-    ) -> Vec<OutboundRpc> {
+    ) -> Vec<OutboundMessage> {
         if resp.term > self.current_term {
             self.become_follower(resp.term, None);
             return Vec::new();
@@ -253,12 +253,15 @@ impl RaftNode {
         self.leader_next_index.insert(resp.from, new_next);
 
         match self.build_append_entries_for_peer(resp.from) {
-            Some(rpc) => vec![OutboundRpc::AppendEntries { to: resp.from, rpc }],
+            Some(message) => vec![OutboundMessage::AppendEntries {
+                to: resp.from,
+                message,
+            }],
             None => Vec::new(),
         }
     }
 
-    pub fn propose_command(&mut self, command: impl Into<String>) -> Option<Vec<OutboundRpc>> {
+    pub fn propose_command(&mut self, command: impl Into<String>) -> Option<Vec<OutboundMessage>> {
         if self.role != Role::Leader {
             return None;
         }
@@ -273,7 +276,7 @@ impl RaftNode {
             self.commit_to(self.log.len());
         }
 
-        Some(self.build_heartbeat_rpcs())
+        Some(self.build_heartbeat_messages())
     }
 
     pub fn commit_to(&mut self, new_commit_index: usize) {
@@ -312,13 +315,13 @@ impl RaftNode {
         }
     }
 
-    fn build_heartbeat_rpcs(&self) -> Vec<OutboundRpc> {
+    fn build_heartbeat_messages(&self) -> Vec<OutboundMessage> {
         self.peers
             .iter()
             .copied()
             .filter_map(|peer| {
                 self.build_append_entries_for_peer(peer)
-                    .map(|rpc| OutboundRpc::AppendEntries { to: peer, rpc })
+                    .map(|message| OutboundMessage::AppendEntries { to: peer, message })
             })
             .collect()
     }
@@ -403,12 +406,12 @@ mod tests {
     #[test]
     fn start_election_votes_for_self_and_sends_requests() {
         let mut n = node(1);
-        let rpcs = n.start_election();
+        let messages = n.start_election();
 
         assert_eq!(n.role, Role::Candidate);
         assert_eq!(n.current_term, 1);
         assert_eq!(n.voted_for, Some(1));
-        assert_eq!(rpcs.len(), 2);
+        assert_eq!(messages.len(), 2);
     }
 
     #[test]
@@ -567,10 +570,10 @@ mod tests {
 
         let mut append_count = 0;
         for msg in outbound {
-            if let OutboundRpc::AppendEntries { rpc, .. } = msg {
+            if let OutboundMessage::AppendEntries { message, .. } = msg {
                 append_count += 1;
-                assert_eq!(rpc.entries.len(), 1);
-                assert_eq!(rpc.entries[0].command, "set k v");
+                assert_eq!(message.entries.len(), 1);
+                assert_eq!(message.entries[0].command, "set k v");
             }
         }
         assert_eq!(append_count, 2);
@@ -622,10 +625,10 @@ mod tests {
 
         assert_eq!(retry.len(), 1);
         match &retry[0] {
-            OutboundRpc::AppendEntries { to, rpc } => {
+            OutboundMessage::AppendEntries { to, message } => {
                 assert_eq!(*to, 2);
-                assert_eq!(rpc.prev_log_index, 0);
-                assert_eq!(rpc.entries.len(), 1);
+                assert_eq!(message.prev_log_index, 0);
+                assert_eq!(message.entries.len(), 1);
             }
             _ => panic!("expected append retry"),
         }

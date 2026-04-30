@@ -2,6 +2,14 @@ use std::collections::HashMap;
 
 use crate::{LogEntry, NodeId, RaftNode, Term};
 
+pub mod file;
+pub mod in_memory;
+pub mod noop;
+
+pub use file::FileStorage;
+pub use in_memory::InMemoryStorage;
+pub use noop::NoopStorage;
+
 #[derive(Debug, Clone)]
 pub struct StorageSnapshot {
     pub node_id: NodeId,
@@ -33,36 +41,4 @@ pub trait StorageStrategy {
     }
 
     fn save(&mut self, snapshot: StorageSnapshot);
-}
-
-#[derive(Default)]
-pub struct NoopStorage;
-
-impl StorageStrategy for NoopStorage {
-    fn save(&mut self, _snapshot: StorageSnapshot) {}
-}
-
-#[derive(Default)]
-pub struct InMemoryStorage {
-    snapshots: HashMap<NodeId, StorageSnapshot>,
-}
-
-impl InMemoryStorage {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn get(&self, node_id: NodeId) -> Option<&StorageSnapshot> {
-        self.snapshots.get(&node_id)
-    }
-}
-
-impl StorageStrategy for InMemoryStorage {
-    fn load(&self, node_id: NodeId) -> Option<StorageSnapshot> {
-        self.snapshots.get(&node_id).cloned()
-    }
-
-    fn save(&mut self, snapshot: StorageSnapshot) {
-        self.snapshots.insert(snapshot.node_id, snapshot);
-    }
 }
