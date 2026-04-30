@@ -1,4 +1,4 @@
-use super::{CommunicationError, InboundMessage, RaftCommunication, RaftMessage};
+use super::{CommunicationError, InboundMessage, RaftCommunication, RaftMessage, SendOutcome};
 use crate::NodeId;
 
 pub struct GrpcCommunication {
@@ -33,13 +33,11 @@ impl RaftCommunication for GrpcCommunication {
         Ok(None)
     }
 
-    fn send(&mut self, _to: NodeId, _message: RaftMessage) -> Result<(), CommunicationError> {
+    fn send(&mut self, _to: NodeId, _message: RaftMessage) -> SendOutcome {
         if !self.started {
-            return Err(CommunicationError::NotStarted);
+            return SendOutcome::Dropped("communication is not started".to_string());
         }
 
-        Err(CommunicationError::Other(
-            "gRPC communication scaffold is not implemented yet".to_string(),
-        ))
+        SendOutcome::Dropped("gRPC communication scaffold is not implemented yet".to_string())
     }
 }

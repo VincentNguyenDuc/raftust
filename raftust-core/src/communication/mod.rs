@@ -29,6 +29,12 @@ pub struct InboundMessage {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SendOutcome {
+    Sent,
+    Dropped(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommunicationError {
     NotStarted,
     Disconnected,
@@ -52,5 +58,5 @@ impl Error for CommunicationError {}
 pub trait RaftCommunication {
     fn start(&mut self, address: String) -> Result<(), CommunicationError>;
     fn poll(&mut self) -> Result<Option<InboundMessage>, CommunicationError>;
-    fn send(&mut self, to: NodeId, message: RaftMessage) -> Result<(), CommunicationError>;
+    fn send(&mut self, to: NodeId, message: RaftMessage) -> SendOutcome;
 }

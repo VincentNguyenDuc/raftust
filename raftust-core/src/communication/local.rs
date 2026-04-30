@@ -6,7 +6,7 @@ use std::thread;
 
 use serde::{Deserialize, Serialize};
 
-use super::{CommunicationError, InboundMessage, RaftCommunication, RaftMessage};
+use super::{CommunicationError, InboundMessage, RaftCommunication, RaftMessage, SendOutcome};
 use crate::{
     AppendEntries, AppendEntriesResponse, InstallSnapshot, InstallSnapshotResponse, LogEntry,
     NodeId, RequestVote, RequestVoteResponse,
@@ -27,13 +27,22 @@ impl LocalNetworkCommunication {
         }
     }
 
-    fn send_to_peer(&self, msg: WireMessage) -> Result<(), CommunicationError> {
+    fn send_to_peer(&self, msg: WireMessage) -> SendOutcome {
         let addr = match self.peer_addrs.get(&msg.to) {
             Some(addr) => addr,
-            None => return Err(CommunicationError::PeerNotConfigured(msg.to)),
+            None => {
+                return SendOutcome::Dropped(format!("peer {} is not configured", msg.to));
+            }
         };
 
-        Self::send_wire(addr, &msg)
+        if let Err(err) = Self::send_wire(addr, &msg) {
+            return SendOutcome::Dropped(format!(
+                "send error {} -> {} ({}): {}",
+                msg.from, msg.to, addr, err
+            ));
+        }
+
+        SendOutcome::Sent
     }
 
     fn spawn_listener(addr: String, tx: Sender<WireMessage>) -> Result<(), CommunicationError> {
@@ -272,7 +281,7 @@ impl RaftCommunication for LocalNetworkCommunication {
         }
     }
 
-    fn send(&mut self, to: NodeId, message: RaftMessage) -> Result<(), CommunicationError> {
+    fn send(&mut self, to: NodeId, message: RaftMessage) -> SendOutcome {
         let msg = Self::message_to_wire(self.local_id, to, message);
         self.send_to_peer(msg)
     }

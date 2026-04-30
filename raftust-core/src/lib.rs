@@ -6,7 +6,7 @@ pub mod storage;
 mod core;
 pub use communication::{
     CommunicationError, GrpcCommunication, InboundMessage, LocalNetworkCommunication,
-    RaftCommunication, RaftMessage,
+    RaftCommunication, RaftMessage, SendOutcome,
 };
 pub use core::node::RaftNode;
 pub use core::types::{

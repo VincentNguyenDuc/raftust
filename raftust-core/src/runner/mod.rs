@@ -3,11 +3,12 @@ use std::sync::mpsc::{self, Sender, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::communication::{CommunicationError, RaftCommunication, RaftMessage};
+use crate::communication::{CommunicationError, RaftCommunication, RaftMessage, SendOutcome};
 use crate::config::Config;
 use crate::storage::{StorageSnapshot, StorageStrategy};
 use crate::{
-    AppendEntriesResponse, InstallSnapshotResponse, OutboundMessage, RaftNode, RequestVoteResponse,
+    AppendEntriesResponse, InstallSnapshotResponse, NodeId, OutboundMessage, RaftNode,
+    RequestVoteResponse,
 };
 
 pub struct Runner<TCommunication, TStorage>
@@ -69,7 +70,7 @@ where
             if Instant::now() >= next_tick {
                 next_tick += Duration::from_millis(self.config.tick_ms);
                 let outbound = self.node.tick();
-                self.dispatch_outbound(outbound)?;
+                self.dispatch_outbound(outbound);
                 self.persist();
             }
 
@@ -77,7 +78,7 @@ where
 
             match command_rx.try_recv() {
                 Ok(cmd) => {
-                    if !self.process_command(&cmd)? {
+                    if !self.process_command(&cmd) {
                         break;
                     }
                 }
@@ -96,14 +97,14 @@ where
             match msg.message {
                 RaftMessage::RequestVote(req) => {
                     let resp = self.node.handle_request_vote(req);
-                    self.communication.send(
+                    self.send_or_log(
                         msg.from,
                         RaftMessage::RequestVoteResponse(RequestVoteResponse {
                             term: resp.term,
                             vote_granted: resp.vote_granted,
                             from: self.node.id,
                         }),
-                    )?;
+                    );
                     self.persist();
                 }
                 RaftMessage::RequestVoteResponse(resp) => {
@@ -115,13 +116,13 @@ where
                             self.node.id, self.node.current_term
                         );
                         let outbound = self.node.tick();
-                        self.dispatch_outbound(outbound)?;
+                        self.dispatch_outbound(outbound);
                     }
                     self.persist();
                 }
                 RaftMessage::AppendEntries(req) => {
                     let resp = self.node.handle_append_entries(req);
-                    self.communication.send(
+                    self.send_or_log(
                         msg.from,
                         RaftMessage::AppendEntriesResponse(AppendEntriesResponse {
                             term: resp.term,
@@ -129,23 +130,23 @@ where
                             from: self.node.id,
                             match_index: resp.match_index,
                         }),
-                    )?;
+                    );
                     self.persist();
                 }
                 RaftMessage::AppendEntriesResponse(resp) => {
                     let outbound = self.node.handle_append_entries_response(resp);
-                    self.dispatch_outbound(outbound)?;
+                    self.dispatch_outbound(outbound);
                     self.persist();
                 }
                 RaftMessage::InstallSnapshot(_req) => {
-                    self.communication.send(
+                    self.send_or_log(
                         msg.from,
                         RaftMessage::InstallSnapshotResponse(InstallSnapshotResponse {
                             term: self.node.current_term,
                             from: self.node.id,
                             success: false,
                         }),
-                    )?;
+                    );
                 }
                 RaftMessage::InstallSnapshotResponse(_resp) => {}
             }
@@ -154,10 +155,10 @@ where
         Ok(())
     }
 
-    fn process_command(&mut self, cmd: &str) -> Result<bool, CommunicationError> {
+    fn process_command(&mut self, cmd: &str) -> bool {
         let cmd = cmd.trim();
         if cmd.eq_ignore_ascii_case("quit") || cmd.eq_ignore_ascii_case("exit") {
-            return Ok(false);
+            return false;
         }
 
         if cmd.eq_ignore_ascii_case("status") {
@@ -172,7 +173,7 @@ where
                 self.node.last_applied,
                 self.node.state_machine,
             );
-            return Ok(true);
+            return true;
         }
 
         if cmd.eq_ignore_ascii_case("election") {
@@ -181,16 +182,16 @@ where
                 "node {} started election for term {}",
                 self.node.id, self.node.current_term
             );
-            self.dispatch_outbound(outbound)?;
+            self.dispatch_outbound(outbound);
             self.persist();
-            return Ok(true);
+            return true;
         }
 
         if let Some(value) = cmd.strip_prefix("propose ") {
             match self.node.propose_command(value.to_string()) {
                 Some(outbound) => {
                     println!("leader {} accepted proposal: {}", self.node.id, value);
-                    self.dispatch_outbound(outbound)?;
+                    self.dispatch_outbound(outbound);
                     self.persist();
                 }
                 None => {
@@ -200,31 +201,33 @@ where
                     );
                 }
             }
-            return Ok(true);
+            return true;
         }
 
         println!("unknown command: {}", cmd);
-        Ok(true)
+        true
     }
 
-    fn dispatch_outbound(
-        &mut self,
-        outbound: Vec<OutboundMessage>,
-    ) -> Result<(), CommunicationError> {
+    fn dispatch_outbound(&mut self, outbound: Vec<OutboundMessage>) {
         for outbound_message in outbound {
             match outbound_message {
                 OutboundMessage::RequestVote { to, message } => {
-                    self.communication
-                        .send(to, RaftMessage::RequestVote(message))?;
+                    self.send_or_log(to, RaftMessage::RequestVote(message));
                 }
                 OutboundMessage::AppendEntries { to, message } => {
-                    self.communication
-                        .send(to, RaftMessage::AppendEntries(message))?;
+                    self.send_or_log(to, RaftMessage::AppendEntries(message));
                 }
             }
         }
+    }
 
-        Ok(())
+    fn send_or_log(&mut self, to: NodeId, message: RaftMessage) {
+        if let SendOutcome::Dropped(reason) = self.communication.send(to, message) {
+            eprintln!(
+                "node {} dropped outbound message to {}: {}",
+                self.node.id, to, reason
+            );
+        }
     }
 
     fn persist(&mut self) {
