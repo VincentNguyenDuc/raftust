@@ -48,7 +48,23 @@ pub struct AppendEntriesResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum OutboundRpc {
-    RequestVote { to: NodeId, rpc: RequestVote },
-    AppendEntries { to: NodeId, rpc: AppendEntries },
+pub struct InstallSnapshot {
+    pub term: Term,
+    pub leader_id: NodeId,
+    pub last_included_index: usize,
+    pub last_included_term: Term,
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallSnapshotResponse {
+    pub term: Term,
+    pub from: NodeId,
+    pub success: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OutboundMessage {
+    RequestVote { to: NodeId, message: RequestVote },
+    AppendEntries { to: NodeId, message: AppendEntries },
 }
