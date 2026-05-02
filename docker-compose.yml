@@ -1,0 +1,145 @@
+services:
+    node1:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        container_name: raftust-node1
+        command:
+            - --id
+            - "1"
+            - --addr
+            - 0.0.0.0:5001
+            - --peer
+            - 2=node2:5002
+            - --peer
+            - 3=node3:5003
+            - --peer
+            - 4=node4:5004
+            - --peer
+            - 5=node5:5005
+        ports:
+            - "5001:5001"
+        stdin_open: true
+        tty: true
+        healthcheck:
+            test: ["CMD-SHELL", "nc -z 127.0.0.1 5001 || exit 1"]
+            interval: 5s
+            timeout: 3s
+            retries: 5
+            start_period: 10s
+
+    node2:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        container_name: raftust-node2
+        command:
+            - --id
+            - "2"
+            - --addr
+            - 0.0.0.0:5002
+            - --peer
+            - 1=node1:5001
+            - --peer
+            - 3=node3:5003
+            - --peer
+            - 4=node4:5004
+            - --peer
+            - 5=node5:5005
+        ports:
+            - "5002:5002"
+        stdin_open: true
+        tty: true
+        healthcheck:
+            test: ["CMD-SHELL", "nc -z 127.0.0.1 5002 || exit 1"]
+            interval: 5s
+            timeout: 3s
+            retries: 5
+            start_period: 10s
+
+    node3:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        container_name: raftust-node3
+        command:
+            - --id
+            - "3"
+            - --addr
+            - 0.0.0.0:5003
+            - --peer
+            - 1=node1:5001
+            - --peer
+            - 2=node2:5002
+            - --peer
+            - 4=node4:5004
+            - --peer
+            - 5=node5:5005
+        ports:
+            - "5003:5003"
+        stdin_open: true
+        tty: true
+        healthcheck:
+            test: ["CMD-SHELL", "nc -z 127.0.0.1 5003 || exit 1"]
+            interval: 5s
+            timeout: 3s
+            retries: 5
+            start_period: 10s
+
+    node4:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        container_name: raftust-node4
+        command:
+            - --id
+            - "4"
+            - --addr
+            - 0.0.0.0:5004
+            - --peer
+            - 1=node1:5001
+            - --peer
+            - 2=node2:5002
+            - --peer
+            - 3=node3:5003
+            - --peer
+            - 5=node5:5005
+        ports:
+            - "5004:5004"
+        stdin_open: true
+        tty: true
+        healthcheck:
+            test: ["CMD-SHELL", "nc -z 127.0.0.1 5004 || exit 1"]
+            interval: 5s
+            timeout: 3s
+            retries: 5
+            start_period: 10s
+
+    node5:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        container_name: raftust-node5
+        command:
+            - --id
+            - "5"
+            - --addr
+            - 0.0.0.0:5005
+            - --peer
+            - 1=node1:5001
+            - --peer
+            - 2=node2:5002
+            - --peer
+            - 3=node3:5003
+            - --peer
+            - 4=node4:5004
+        ports:
+            - "5005:5005"
+        stdin_open: true
+        tty: true
+        healthcheck:
+            test: ["CMD-SHELL", "nc -z 127.0.0.1 5005 || exit 1"]
+            interval: 5s
+            timeout: 3s
+            retries: 5
+            start_period: 10s

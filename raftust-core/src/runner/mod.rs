@@ -1,6 +1,4 @@
-use std::io::{BufRead, BufReader};
-use std::sync::mpsc::{self, Sender, TryRecvError};
-use std::thread;
+use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
 use crate::communication::{CommunicationError, RaftCommunication, RaftMessage, SendOutcome};
@@ -11,23 +9,42 @@ use crate::{
     RequestVoteResponse,
 };
 
-pub struct Runner<TCommunication, TStorage>
+pub mod state_machine;
+use state_machine::StateMachineStrategy;
+
+#[derive(Debug)]
+pub enum Command {
+    Propose(String),
+    ForceElection,
+    Status,
+    Shutdown,
+}
+
+pub struct Runner<TCommunication, TStorage, TStateMachine>
 where
     TCommunication: RaftCommunication,
     TStorage: StorageStrategy,
+    TStateMachine: StateMachineStrategy,
 {
     config: Config,
     node: RaftNode,
     communication: TCommunication,
     storage: TStorage,
+    state_machine: TStateMachine,
 }
 
-impl<TCommunication, TStorage> Runner<TCommunication, TStorage>
+impl<TCommunication, TStorage, TStateMachine> Runner<TCommunication, TStorage, TStateMachine>
 where
     TCommunication: RaftCommunication,
     TStorage: StorageStrategy,
+    TStateMachine: StateMachineStrategy,
 {
-    pub fn new(config: Config, communication: TCommunication, storage: TStorage) -> Self {
+    pub fn new(
+        config: Config,
+        communication: TCommunication,
+        storage: TStorage,
+        state_machine: TStateMachine,
+    ) -> Self {
         let peers = config.peer_addrs.keys().copied().collect::<Vec<_>>();
         let node = RaftNode::new(
             config.id,
@@ -41,29 +58,17 @@ where
             node,
             communication,
             storage,
+            state_machine,
         }
     }
 
-    pub fn run(&mut self) -> Result<(), CommunicationError> {
+    pub fn run(&mut self, command_rx: Receiver<Command>) -> Result<(), CommunicationError> {
         self.communication.start(self.config.addr.clone())?;
 
         if let Some(snapshot) = self.storage.load(self.config.id) {
             self.restore_from_snapshot(snapshot);
         }
-
-        let (command_tx, command_rx) = mpsc::channel::<String>();
-        spawn_stdin_reader(command_tx);
-
-        println!(
-            "node={} addr={} peers={} election_timeout_ticks={} heartbeat_ticks={} tick_ms={}",
-            self.config.id,
-            self.config.addr,
-            self.config.peer_addrs.len(),
-            self.config.election_timeout_ticks,
-            self.config.heartbeat_interval_ticks,
-            self.config.tick_ms
-        );
-        println!("commands: status | election | propose <value> | quit");
+        self.apply_committed_entries();
 
         let mut next_tick = Instant::now() + Duration::from_millis(self.config.tick_ms);
         loop {
@@ -78,15 +83,17 @@ where
 
             match command_rx.try_recv() {
                 Ok(cmd) => {
-                    if !self.process_command(&cmd) {
+                    if !self.process_command(cmd) {
                         break;
                     }
                 }
                 Err(TryRecvError::Empty) => {}
-                Err(TryRecvError::Disconnected) => break,
+                // In non-interactive environments (e.g. containers), command input can be absent.
+                // Keep the Raft node running even if the command channel closes.
+                Err(TryRecvError::Disconnected) => {}
             }
 
-            thread::sleep(Duration::from_millis(5));
+            std::thread::sleep(Duration::from_millis(5));
         }
 
         Ok(())
@@ -105,6 +112,7 @@ where
                             from: self.node.id,
                         }),
                     );
+                    self.apply_committed_entries();
                     self.persist();
                 }
                 RaftMessage::RequestVoteResponse(resp) => {
@@ -118,6 +126,7 @@ where
                         let outbound = self.node.tick();
                         self.dispatch_outbound(outbound);
                     }
+                    self.apply_committed_entries();
                     self.persist();
                 }
                 RaftMessage::AppendEntries(req) => {
@@ -131,11 +140,13 @@ where
                             match_index: resp.match_index,
                         }),
                     );
+                    self.apply_committed_entries();
                     self.persist();
                 }
                 RaftMessage::AppendEntriesResponse(resp) => {
                     let outbound = self.node.handle_append_entries_response(resp);
                     self.dispatch_outbound(outbound);
+                    self.apply_committed_entries();
                     self.persist();
                 }
                 RaftMessage::InstallSnapshot(_req) => {
@@ -155,43 +166,37 @@ where
         Ok(())
     }
 
-    fn process_command(&mut self, cmd: &str) -> bool {
-        let cmd = cmd.trim();
-        if cmd.eq_ignore_ascii_case("quit") || cmd.eq_ignore_ascii_case("exit") {
-            return false;
-        }
-
-        if cmd.eq_ignore_ascii_case("status") {
-            println!(
-                "id={} role={:?} term={} leader={:?} log_len={} commit_index={} last_applied={} sm={:?}",
-                self.node.id,
-                self.node.role,
-                self.node.current_term,
-                self.node.leader_id,
-                self.node.log.len(),
-                self.node.commit_index,
-                self.node.last_applied,
-                self.node.state_machine,
-            );
-            return true;
-        }
-
-        if cmd.eq_ignore_ascii_case("election") {
-            let outbound = self.node.start_election();
-            println!(
-                "node {} started election for term {}",
-                self.node.id, self.node.current_term
-            );
-            self.dispatch_outbound(outbound);
-            self.persist();
-            return true;
-        }
-
-        if let Some(value) = cmd.strip_prefix("propose ") {
-            match self.node.propose_command(value.to_string()) {
+    fn process_command(&mut self, cmd: Command) -> bool {
+        match cmd {
+            Command::Shutdown => return false,
+            Command::Status => {
+                println!(
+                    "id={} role={:?} term={} leader={:?} log_len={} commit_index={} last_applied={} sm={}",
+                    self.node.id,
+                    self.node.role,
+                    self.node.current_term,
+                    self.node.leader_id,
+                    self.node.log.len(),
+                    self.node.commit_index,
+                    self.node.last_applied,
+                    self.state_machine.describe(),
+                );
+            }
+            Command::ForceElection => {
+                let outbound = self.node.start_election();
+                println!(
+                    "node {} started election for term {}",
+                    self.node.id, self.node.current_term
+                );
+                self.dispatch_outbound(outbound);
+                self.apply_committed_entries();
+                self.persist();
+            }
+            Command::Propose(value) => match self.node.propose_command(value.clone()) {
                 Some(outbound) => {
                     println!("leader {} accepted proposal: {}", self.node.id, value);
                     self.dispatch_outbound(outbound);
+                    self.apply_committed_entries();
                     self.persist();
                 }
                 None => {
@@ -200,11 +205,8 @@ where
                         self.node.id, self.node.leader_id
                     );
                 }
-            }
-            return true;
+            },
         }
-
-        println!("unknown command: {}", cmd);
         true
     }
 
@@ -234,28 +236,17 @@ where
         self.storage.save(StorageSnapshot::from_node(&self.node));
     }
 
+    fn apply_committed_entries(&mut self) {
+        for entry in self.node.take_unapplied_entries() {
+            self.state_machine.apply(&entry.command);
+        }
+    }
+
     fn restore_from_snapshot(&mut self, snapshot: StorageSnapshot) {
         self.node.current_term = snapshot.current_term;
         self.node.voted_for = snapshot.voted_for;
         self.node.log = snapshot.log;
         self.node.commit_index = snapshot.commit_index.min(self.node.log.len());
-        self.node.last_applied = snapshot.last_applied.min(self.node.commit_index);
-        self.node.state_machine = snapshot.state_machine;
+        self.node.last_applied = 0;
     }
-}
-
-fn spawn_stdin_reader(tx: Sender<String>) {
-    thread::spawn(move || {
-        let stdin = std::io::stdin();
-        let reader = BufReader::new(stdin);
-        for line in reader.lines() {
-            let line = match line {
-                Ok(line) => line,
-                Err(_) => break,
-            };
-            if tx.send(line).is_err() {
-                break;
-            }
-        }
-    });
 }

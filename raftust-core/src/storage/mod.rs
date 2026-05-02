@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::{LogEntry, NodeId, RaftNode, Term};
 
 pub mod file;
@@ -17,8 +15,6 @@ pub struct StorageSnapshot {
     pub voted_for: Option<NodeId>,
     pub log: Vec<LogEntry>,
     pub commit_index: usize,
-    pub last_applied: usize,
-    pub state_machine: HashMap<String, String>,
 }
 
 impl StorageSnapshot {
@@ -29,8 +25,6 @@ impl StorageSnapshot {
             voted_for: node.voted_for,
             log: node.log.clone(),
             commit_index: node.commit_index,
-            last_applied: node.last_applied,
-            state_machine: node.state_machine.clone(),
         }
     }
 }

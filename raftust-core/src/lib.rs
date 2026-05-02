@@ -13,5 +13,6 @@ pub use core::types::{
     AppendEntries, AppendEntriesResponse, InstallSnapshot, InstallSnapshotResponse, LogEntry,
     NodeId, OutboundMessage, RequestVote, RequestVoteResponse, Role, Term,
 };
-pub use runner::Runner;
+pub use runner::state_machine::StateMachineStrategy;
+pub use runner::{Command, Runner};
 pub use storage::{FileStorage, InMemoryStorage, NoopStorage, StorageSnapshot, StorageStrategy};

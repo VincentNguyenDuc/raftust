@@ -1,10 +1,8 @@
-use std::collections::{HashMap, HashSet};
-
-use super::state_machine::apply_command;
 use super::types::{
     AppendEntries, AppendEntriesResponse, LogEntry, NodeId, OutboundMessage, RequestVote,
     RequestVoteResponse, Role, Term,
 };
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug)]
 pub struct RaftNode {
@@ -15,7 +13,6 @@ pub struct RaftNode {
     pub log: Vec<LogEntry>,
     pub commit_index: usize,
     pub last_applied: usize,
-    pub state_machine: HashMap<String, String>,
     pub role: Role,
     pub leader_id: Option<NodeId>,
     leader_next_index: HashMap<NodeId, usize>,
@@ -42,7 +39,6 @@ impl RaftNode {
             log: Vec::new(),
             commit_index: 0,
             last_applied: 0,
-            state_machine: HashMap::new(),
             role: Role::Follower,
             leader_id: None,
             leader_next_index: HashMap::new(),
@@ -281,11 +277,17 @@ impl RaftNode {
 
     pub fn commit_to(&mut self, new_commit_index: usize) {
         self.commit_index = new_commit_index.min(self.log.len());
-        self.apply_committed_entries();
     }
 
-    pub fn state_machine_get(&self, key: &str) -> Option<&str> {
-        self.state_machine.get(key).map(String::as_str)
+    pub fn take_unapplied_entries(&mut self) -> Vec<LogEntry> {
+        let end = self.commit_index.min(self.log.len());
+        if self.last_applied >= end {
+            return Vec::new();
+        }
+
+        let entries = self.log[self.last_applied..end].to_vec();
+        self.last_applied = end;
+        entries
     }
 
     fn become_follower(&mut self, term: Term, leader: Option<NodeId>) {
@@ -356,14 +358,6 @@ impl RaftNode {
             (self.log.len(), last.term)
         } else {
             (0, 0)
-        }
-    }
-
-    fn apply_committed_entries(&mut self) {
-        while self.last_applied < self.commit_index {
-            let idx = self.last_applied;
-            apply_command(&mut self.state_machine, &self.log[idx].command);
-            self.last_applied += 1;
         }
     }
 
@@ -500,7 +494,7 @@ mod tests {
     }
 
     #[test]
-    fn commit_applies_state_machine_commands() {
+    fn commit_makes_entries_available_for_application() {
         let mut n = node(1);
         n.log = vec![
             LogEntry {
@@ -518,14 +512,16 @@ mod tests {
         ];
 
         n.commit_to(3);
+        let applied = n.take_unapplied_entries();
 
         assert_eq!(n.last_applied, 3);
-        assert_eq!(n.state_machine_get("size"), Some("large"));
-        assert_eq!(n.state_machine_get("color"), None);
+        assert_eq!(applied.len(), 3);
+        assert_eq!(applied[1].command, "set size large");
+        assert_eq!(n.take_unapplied_entries().len(), 0);
     }
 
     #[test]
-    fn append_entries_with_commit_applies_to_state_machine() {
+    fn append_entries_with_commit_advances_commit_index() {
         let mut n = node(2);
         n.current_term = 4;
 
@@ -549,9 +545,10 @@ mod tests {
 
         assert!(resp.success);
         assert_eq!(n.commit_index, 2);
+        assert_eq!(n.last_applied, 0);
+        let applied = n.take_unapplied_entries();
+        assert_eq!(applied.len(), 2);
         assert_eq!(n.last_applied, 2);
-        assert_eq!(n.state_machine_get("animal"), Some("cat"));
-        assert_eq!(n.state_machine_get("mood"), Some("happy"));
     }
 
     #[test]
@@ -601,8 +598,12 @@ mod tests {
 
         assert!(retry.is_empty());
         assert_eq!(n.commit_index, 1);
+        assert_eq!(n.last_applied, 0);
+
+        let applied = n.take_unapplied_entries();
+        assert_eq!(applied.len(), 1);
+        assert_eq!(applied[0].command, "set color red");
         assert_eq!(n.last_applied, 1);
-        assert_eq!(n.state_machine_get("color"), Some("red"));
     }
 
     #[test]
