@@ -3,7 +3,7 @@ use std::io::{BufRead, BufReader};
 use std::sync::mpsc;
 use std::thread;
 
-use raftust_core::communication::LocalNetworkCommunication;
+use raftust_core::communication::HttpsCommunication;
 use raftust_core::config::parse_config;
 use raftust_core::runner::{Command, Runner};
 use raftust_core::storage::InMemoryStorage;
@@ -22,7 +22,7 @@ fn run() -> Result<(), String> {
     let config = parse_config(env::args().skip(1).collect())?;
 
     println!(
-        "node={} addr={} peers={} election_timeout_ticks={} heartbeat_ticks={} tick_ms={}",
+        "node={} addr={} peers={} transport=https election_timeout_ticks={} heartbeat_ticks={} tick_ms={}",
         config.id,
         config.addr,
         config.peer_addrs.len(),
@@ -56,7 +56,7 @@ fn run() -> Result<(), String> {
         }
     });
 
-    let communication = LocalNetworkCommunication::new(config.id, config.peer_addrs.clone());
+    let communication = HttpsCommunication::new(config.id, config.peer_addrs.clone());
     let storage = InMemoryStorage::new();
     let state_machine = KeyValueStateMachine::new();
     let mut runner = Runner::new(config, communication, storage, state_machine);

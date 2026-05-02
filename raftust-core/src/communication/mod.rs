@@ -7,10 +7,13 @@ use crate::{
 };
 
 pub mod grpc;
-pub mod local;
+pub mod https;
+pub mod tcp;
+mod wire;
 
 pub use grpc::GrpcCommunication;
-pub use local::LocalNetworkCommunication;
+pub use https::HttpsCommunication;
+pub use tcp::TcpCommunication;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RaftMessage {

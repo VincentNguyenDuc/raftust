@@ -6,3 +6,11 @@ edition = "2024"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tokio = { version = "1", features = ["rt", "net", "rt-multi-thread"] }
+axum = "0.7"
+hyper-util = { version = "0.1", features = ["tokio", "server-auto", "http1"] }
+tokio-rustls = "0.26"
+rustls = "0.23"
+rustls-pemfile = "2"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking", "json"] }
+rcgen = "0.13"
