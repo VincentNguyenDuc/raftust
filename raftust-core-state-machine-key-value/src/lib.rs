@@ -82,4 +82,38 @@ mod tests {
 
         assert_eq!(sm.describe(), "{\"size\": \"large\"}");
     }
+
+    #[test]
+    fn set_supports_values_with_spaces() {
+        let mut sm = KeyValueStateMachine::new();
+
+        sm.apply("set note hello world from raft");
+
+        assert!(
+            sm.describe()
+                .contains("\"note\": \"hello world from raft\"")
+        );
+    }
+
+    #[test]
+    fn invalid_commands_do_not_mutate_state() {
+        let mut sm = KeyValueStateMachine::new();
+
+        sm.apply("set");
+        sm.apply("set    ");
+        sm.apply("del");
+        sm.apply("unknown command");
+
+        assert_eq!(sm.describe(), "{}");
+    }
+
+    #[test]
+    fn delete_missing_key_is_a_noop() {
+        let mut sm = KeyValueStateMachine::new();
+
+        sm.apply("set color blue");
+        sm.apply("del missing");
+
+        assert!(sm.describe().contains("\"color\": \"blue\""));
+    }
 }

@@ -3,6 +3,7 @@ members = [
 	"raftust-core",
 	"raftust-core-comm-grpc",
 	"raftust-core-comm-https",
+	"raftust-core-state-machine-counter",
 	"raftust-core-state-machine-key-value",
 	"raftust-core-storage-file",
 	"raftust-core-storage-in-memory",
