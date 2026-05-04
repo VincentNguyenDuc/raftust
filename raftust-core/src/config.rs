@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::core::types::NodeId;
+use crate::types::NodeId;
 
 #[derive(Debug)]
 pub struct Config {

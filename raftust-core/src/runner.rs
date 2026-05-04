@@ -9,6 +9,7 @@ use crate::{
     RequestVoteResponse,
 };
 
+#[path = "state_machine.rs"]
 pub mod state_machine;
 use state_machine::StateMachineStrategy;
 
@@ -88,8 +89,6 @@ where
                     }
                 }
                 Err(TryRecvError::Empty) => {}
-                // In non-interactive environments (e.g. containers), command input can be absent.
-                // Keep the Raft node running even if the command channel closes.
                 Err(TryRecvError::Disconnected) => {}
             }
 

@@ -6,15 +6,6 @@ use crate::{
     RequestVote, RequestVoteResponse,
 };
 
-pub mod grpc;
-pub mod https;
-pub mod tcp;
-mod wire;
-
-pub use grpc::GrpcCommunication;
-pub use https::HttpsCommunication;
-pub use tcp::TcpCommunication;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RaftMessage {
     RequestVote(RequestVote),

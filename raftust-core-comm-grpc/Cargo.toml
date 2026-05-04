@@ -1,0 +1,14 @@
+[package]
+name = "raftust-core-comm-grpc"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+prost = "0.13"
+raftust-core = { path = "../raftust-core" }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync"] }
+tonic = { version = "0.12", features = ["transport"] }
+
+[build-dependencies]
+protoc-bin-vendored = "3"
+tonic-build = "0.12"

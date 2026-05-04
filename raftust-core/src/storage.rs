@@ -1,13 +1,5 @@
 use crate::{LogEntry, NodeId, RaftNode, Term};
 
-pub mod file;
-pub mod in_memory;
-pub mod noop;
-
-pub use file::FileStorage;
-pub use in_memory::InMemoryStorage;
-pub use noop::NoopStorage;
-
 #[derive(Debug, Clone)]
 pub struct StorageSnapshot {
     pub node_id: NodeId,

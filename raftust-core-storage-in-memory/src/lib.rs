@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
-use crate::NodeId;
-use crate::storage::{StorageSnapshot, StorageStrategy};
+use raftust_core::{NodeId, StorageSnapshot, StorageStrategy};
 
 #[derive(Default)]
 pub struct InMemoryStorage {

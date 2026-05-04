@@ -3,16 +3,16 @@ pub mod config;
 pub mod runner;
 pub mod storage;
 
-mod core;
+mod node;
+mod types;
 pub use communication::{
-    CommunicationError, GrpcCommunication, HttpsCommunication, InboundMessage, RaftCommunication,
-    RaftMessage, SendOutcome, TcpCommunication,
+    CommunicationError, InboundMessage, RaftCommunication, RaftMessage, SendOutcome,
 };
-pub use core::node::RaftNode;
-pub use core::types::{
+pub use node::RaftNode;
+pub use runner::state_machine::StateMachineStrategy;
+pub use runner::{Command, Runner};
+pub use storage::{StorageSnapshot, StorageStrategy};
+pub use types::{
     AppendEntries, AppendEntriesResponse, InstallSnapshot, InstallSnapshotResponse, LogEntry,
     NodeId, OutboundMessage, RequestVote, RequestVoteResponse, Role, Term,
 };
-pub use runner::state_machine::StateMachineStrategy;
-pub use runner::{Command, Runner};
-pub use storage::{FileStorage, InMemoryStorage, NoopStorage, StorageSnapshot, StorageStrategy};

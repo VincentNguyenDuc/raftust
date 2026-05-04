@@ -3,10 +3,10 @@ use std::io::{BufRead, BufReader};
 use std::sync::mpsc;
 use std::thread;
 
-use raftust_core::communication::HttpsCommunication;
 use raftust_core::config::parse_config;
 use raftust_core::runner::{Command, Runner};
-use raftust_core::storage::InMemoryStorage;
+use raftust_core_comm_https::HttpsCommunication;
+use raftust_core_storage_in_memory::InMemoryStorage;
 
 mod state_machine;
 use state_machine::KeyValueStateMachine;

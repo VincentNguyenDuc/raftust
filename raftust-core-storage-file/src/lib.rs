@@ -4,8 +4,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::storage::{StorageSnapshot, StorageStrategy};
-use crate::{LogEntry, NodeId};
+use raftust_core::{LogEntry, NodeId, StorageSnapshot, StorageStrategy};
 
 pub struct FileStorage {
     directory: PathBuf,
@@ -125,8 +124,7 @@ impl From<PersistedSnapshot> for StorageSnapshot {
 #[cfg(test)]
 mod tests {
     use super::FileStorage;
-    use crate::LogEntry;
-    use crate::storage::{StorageSnapshot, StorageStrategy};
+    use raftust_core::{LogEntry, StorageSnapshot, StorageStrategy};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};

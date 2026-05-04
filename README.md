@@ -1,31 +1,28 @@
 # Raftust
-A modular implementation of Raft in Rust.
 
-## Design
+Raftust is a lightweight, modular implementation of the Raft consensus protocol in Rust.
 
-Raftust separates the Raft protocol from the concerns of how nodes communicate and how state is persisted. The protocol logic lives in `raftust-core` and is completely decoupled from transport and storage through two pluggable traits: `RaftCommunication` and `StorageStrategy`. Consumers implement these traits to adapt the library to any transport (TCP, gRPC, in-process channels) or any storage backend (disk, database, in-memory) without touching the protocol code.
+## Overview
 
-The `Runner` ties these pieces together. It owns the tick loop, drives inbound message processing, dispatches outbound messages, and coordinates persistence. It is generic over both pluggable components, so the full cluster behavior can be exercised in tests with in-memory fakes without any network or disk involvement.
+The project is designed around a simple idea: keep consensus logic focused and independent, then connect it to the outside world through interchangeable adapters.
 
-`raftust-example` demonstrates the simplest wiring: `LocalNetworkCommunication` (TCP, line-delimited JSON) and `InMemoryStorage`.
+In practice, this means Raftust emphasizes:
 
-## Run
+- clear separation of responsibilities
+- composable building blocks
+- easy testing in isolated environments
+- flexibility in transport and persistence choices
 
-```bash
-cargo test
-```
+## Philosophy
 
-Start 3 terminals and run one node per terminal:
+Raftust treats consensus as a reusable engine rather than a fixed application stack. Network behavior and storage behavior are intentionally pluggable so teams can choose the operational model that fits their environment.
 
-```bash
-cargo run -p raftust-example -- --id 1 --addr 127.0.0.1:5001 --peer 2=127.0.0.1:5002 --peer 3=127.0.0.1:5003
-cargo run -p raftust-example -- --id 2 --addr 127.0.0.1:5002 --peer 1=127.0.0.1:5001 --peer 3=127.0.0.1:5003
-cargo run -p raftust-example -- --id 3 --addr 127.0.0.1:5003 --peer 1=127.0.0.1:5001 --peer 2=127.0.0.1:5002
-```
+This approach makes it easier to:
 
-Each node accepts commands on stdin:
+- experiment with different deployment patterns
+- swap infrastructure decisions without rewriting core protocol behavior
+- reason about correctness separately from integration concerns
 
-- `status`
-- `election`
-- `propose <key> <value>`
-- `quit`
+## Project Direction
+
+The repository is organized to keep the protocol core minimal and keep optional capabilities modular. As the project evolves, this structure supports adding new integrations while preserving a stable consensus foundation.

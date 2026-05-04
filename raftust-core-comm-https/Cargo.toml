@@ -1,0 +1,16 @@
+[package]
+name = "raftust-core-comm-https"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = "0.7"
+hyper-util = { version = "0.1", features = ["tokio", "server-auto", "http1"] }
+raftust-core = { path = "../raftust-core" }
+rcgen = "0.13"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking", "json"] }
+rustls = "0.23"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "net", "rt-multi-thread"] }
+tokio-rustls = "0.26"

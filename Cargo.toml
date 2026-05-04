@@ -1,3 +1,10 @@
 [workspace]
-members = ["raftust-core", "raftust-example"]
+members = [
+	"raftust-core",
+	"raftust-core-comm-grpc",
+	"raftust-core-comm-https",
+	"raftust-core-storage-file",
+	"raftust-core-storage-in-memory",
+	"raftust-examples",
+]
 resolver = "2" # Recommended for modern projects

@@ -1,11 +1,8 @@
-//! Shared wire types and message conversion used by all transport implementations.
-
 use serde::{Deserialize, Serialize};
 
-use super::{InboundMessage, RaftMessage};
-use crate::{
-    AppendEntries, AppendEntriesResponse, InstallSnapshot, InstallSnapshotResponse, LogEntry,
-    NodeId, RequestVote, RequestVoteResponse,
+use raftust_core::{
+    AppendEntries, AppendEntriesResponse, InboundMessage, InstallSnapshot, InstallSnapshotResponse,
+    LogEntry, NodeId, RaftMessage, RequestVote, RequestVoteResponse,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
