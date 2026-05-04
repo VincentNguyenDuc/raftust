@@ -4,6 +4,8 @@ services:
             context: .
             dockerfile: Dockerfile
         container_name: raftust-node1
+        environment:
+            - RAFTUST_STORAGE_DIR=/data
         command:
             - --id
             - "1"
@@ -19,6 +21,8 @@ services:
             - 5=node5:5005
         ports:
             - "5001:5001"
+        volumes:
+            - node1-data:/data
         stdin_open: true
         tty: true
         healthcheck:
@@ -33,6 +37,8 @@ services:
             context: .
             dockerfile: Dockerfile
         container_name: raftust-node2
+        environment:
+            - RAFTUST_STORAGE_DIR=/data
         command:
             - --id
             - "2"
@@ -48,6 +54,8 @@ services:
             - 5=node5:5005
         ports:
             - "5002:5002"
+        volumes:
+            - node2-data:/data
         stdin_open: true
         tty: true
         healthcheck:
@@ -62,6 +70,8 @@ services:
             context: .
             dockerfile: Dockerfile
         container_name: raftust-node3
+        environment:
+            - RAFTUST_STORAGE_DIR=/data
         command:
             - --id
             - "3"
@@ -77,6 +87,8 @@ services:
             - 5=node5:5005
         ports:
             - "5003:5003"
+        volumes:
+            - node3-data:/data
         stdin_open: true
         tty: true
         healthcheck:
@@ -91,6 +103,8 @@ services:
             context: .
             dockerfile: Dockerfile
         container_name: raftust-node4
+        environment:
+            - RAFTUST_STORAGE_DIR=/data
         command:
             - --id
             - "4"
@@ -106,6 +120,8 @@ services:
             - 5=node5:5005
         ports:
             - "5004:5004"
+        volumes:
+            - node4-data:/data
         stdin_open: true
         tty: true
         healthcheck:
@@ -120,6 +136,8 @@ services:
             context: .
             dockerfile: Dockerfile
         container_name: raftust-node5
+        environment:
+            - RAFTUST_STORAGE_DIR=/data
         command:
             - --id
             - "5"
@@ -135,6 +153,8 @@ services:
             - 4=node4:5004
         ports:
             - "5005:5005"
+        volumes:
+            - node5-data:/data
         stdin_open: true
         tty: true
         healthcheck:
@@ -143,3 +163,10 @@ services:
             timeout: 3s
             retries: 5
             start_period: 15s
+
+volumes:
+    node1-data:
+    node2-data:
+    node3-data:
+    node4-data:
+    node5-data:
