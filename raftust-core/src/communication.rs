@@ -6,12 +6,6 @@ use crate::{
     RequestVote, RequestVoteResponse,
 };
 
-pub mod grpc;
-pub mod local;
-
-pub use grpc::GrpcCommunication;
-pub use local::LocalNetworkCommunication;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RaftMessage {
     RequestVote(RequestVote),

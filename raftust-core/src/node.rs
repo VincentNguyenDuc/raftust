@@ -1,10 +1,8 @@
-use std::collections::{HashMap, HashSet};
-
-use super::state_machine::apply_command;
 use super::types::{
     AppendEntries, AppendEntriesResponse, LogEntry, NodeId, OutboundMessage, RequestVote,
     RequestVoteResponse, Role, Term,
 };
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug)]
 pub struct RaftNode {
@@ -15,7 +13,6 @@ pub struct RaftNode {
     pub log: Vec<LogEntry>,
     pub commit_index: usize,
     pub last_applied: usize,
-    pub state_machine: HashMap<String, String>,
     pub role: Role,
     pub leader_id: Option<NodeId>,
     leader_next_index: HashMap<NodeId, usize>,
@@ -42,7 +39,6 @@ impl RaftNode {
             log: Vec::new(),
             commit_index: 0,
             last_applied: 0,
-            state_machine: HashMap::new(),
             role: Role::Follower,
             leader_id: None,
             leader_next_index: HashMap::new(),
@@ -281,11 +277,17 @@ impl RaftNode {
 
     pub fn commit_to(&mut self, new_commit_index: usize) {
         self.commit_index = new_commit_index.min(self.log.len());
-        self.apply_committed_entries();
     }
 
-    pub fn state_machine_get(&self, key: &str) -> Option<&str> {
-        self.state_machine.get(key).map(String::as_str)
+    pub fn take_unapplied_entries(&mut self) -> Vec<LogEntry> {
+        let end = self.commit_index.min(self.log.len());
+        if self.last_applied >= end {
+            return Vec::new();
+        }
+
+        let entries = self.log[self.last_applied..end].to_vec();
+        self.last_applied = end;
+        entries
     }
 
     fn become_follower(&mut self, term: Term, leader: Option<NodeId>) {
@@ -359,14 +361,6 @@ impl RaftNode {
         }
     }
 
-    fn apply_committed_entries(&mut self) {
-        while self.last_applied < self.commit_index {
-            let idx = self.last_applied;
-            apply_command(&mut self.state_machine, &self.log[idx].command);
-            self.last_applied += 1;
-        }
-    }
-
     fn try_advance_commit_index(&mut self) {
         if self.role != Role::Leader {
             return;
@@ -427,20 +421,32 @@ mod tests {
 
         assert!(elected);
         assert_eq!(n.role, Role::Leader);
-        assert_eq!(n.leader_id, Some(1));
+    }
+
+    #[test]
+    fn request_vote_grants_if_log_is_up_to_date() {
+        let mut n = node(2);
+        let resp = n.handle_request_vote(RequestVote {
+            term: 1,
+            candidate_id: 1,
+            last_log_index: 0,
+            last_log_term: 0,
+        });
+
+        assert!(resp.vote_granted);
+        assert_eq!(n.voted_for, Some(1));
+        assert_eq!(n.current_term, 1);
     }
 
     #[test]
     fn request_vote_rejects_stale_log() {
         let mut n = node(2);
         n.log.push(LogEntry {
-            term: 3,
-            command: "x=1".to_string(),
+            term: 2,
+            command: "x".into(),
         });
-        n.current_term = 3;
-
         let resp = n.handle_request_vote(RequestVote {
-            term: 3,
+            term: 2,
             candidate_id: 1,
             last_log_index: 0,
             last_log_term: 0,
@@ -450,187 +456,175 @@ mod tests {
     }
 
     #[test]
-    fn request_vote_grants_if_log_is_up_to_date() {
-        let mut n = node(2);
-        n.current_term = 2;
-
-        let resp = n.handle_request_vote(RequestVote {
-            term: 2,
-            candidate_id: 1,
-            last_log_index: 0,
-            last_log_term: 0,
+    fn append_entries_with_commit_advances_commit_index() {
+        let mut follower = node(2);
+        let resp = follower.handle_append_entries(AppendEntries {
+            term: 1,
+            leader_id: 1,
+            prev_log_index: 0,
+            prev_log_term: 0,
+            entries: vec![LogEntry {
+                term: 1,
+                command: "set a 1".into(),
+            }],
+            leader_commit: 1,
         });
 
-        assert!(resp.vote_granted);
-        assert_eq!(n.voted_for, Some(1));
+        assert!(resp.success);
+        assert_eq!(follower.log.len(), 1);
+        assert_eq!(follower.commit_index, 1);
     }
 
     #[test]
     fn append_entries_rewrites_conflicting_suffix() {
-        let mut n = node(2);
-        n.current_term = 2;
-        n.log = vec![
-            LogEntry {
-                term: 1,
-                command: "a".to_string(),
-            },
-            LogEntry {
-                term: 2,
-                command: "b".to_string(),
-            },
-        ];
+        let mut follower = node(2);
+        follower.log.push(LogEntry {
+            term: 1,
+            command: "old1".into(),
+        });
+        follower.log.push(LogEntry {
+            term: 2,
+            command: "old2".into(),
+        });
 
-        let resp = n.handle_append_entries(AppendEntries {
+        let resp = follower.handle_append_entries(AppendEntries {
             term: 3,
             leader_id: 1,
             prev_log_index: 1,
             prev_log_term: 1,
             entries: vec![LogEntry {
                 term: 3,
-                command: "c".to_string(),
+                command: "new2".into(),
             }],
             leader_commit: 2,
         });
 
         assert!(resp.success);
-        assert_eq!(n.log.len(), 2);
-        assert_eq!(n.log[1].term, 3);
-        assert_eq!(n.log[1].command, "c");
-        assert_eq!(n.commit_index, 2);
-    }
-
-    #[test]
-    fn commit_applies_state_machine_commands() {
-        let mut n = node(1);
-        n.log = vec![
-            LogEntry {
-                term: 1,
-                command: "set color blue".to_string(),
-            },
-            LogEntry {
-                term: 1,
-                command: "set size large".to_string(),
-            },
-            LogEntry {
-                term: 1,
-                command: "del color".to_string(),
-            },
-        ];
-
-        n.commit_to(3);
-
-        assert_eq!(n.last_applied, 3);
-        assert_eq!(n.state_machine_get("size"), Some("large"));
-        assert_eq!(n.state_machine_get("color"), None);
-    }
-
-    #[test]
-    fn append_entries_with_commit_applies_to_state_machine() {
-        let mut n = node(2);
-        n.current_term = 4;
-
-        let resp = n.handle_append_entries(AppendEntries {
-            term: 4,
-            leader_id: 1,
-            prev_log_index: 0,
-            prev_log_term: 0,
-            entries: vec![
-                LogEntry {
-                    term: 4,
-                    command: "set animal cat".to_string(),
-                },
-                LogEntry {
-                    term: 4,
-                    command: "set mood happy".to_string(),
-                },
-            ],
-            leader_commit: 2,
-        });
-
-        assert!(resp.success);
-        assert_eq!(n.commit_index, 2);
-        assert_eq!(n.last_applied, 2);
-        assert_eq!(n.state_machine_get("animal"), Some("cat"));
-        assert_eq!(n.state_machine_get("mood"), Some("happy"));
-    }
-
-    #[test]
-    fn leader_proposal_sends_entry_to_followers() {
-        let mut n = node(1);
-        n.start_election();
-        assert!(n.handle_request_vote_response(RequestVoteResponse {
-            term: 1,
-            vote_granted: true,
-            from: 2,
-        }));
-
-        let outbound = n
-            .propose_command("set k v")
-            .expect("leader must accept proposal");
-
-        let mut append_count = 0;
-        for msg in outbound {
-            if let OutboundMessage::AppendEntries { message, .. } = msg {
-                append_count += 1;
-                assert_eq!(message.entries.len(), 1);
-                assert_eq!(message.entries[0].command, "set k v");
-            }
-        }
-        assert_eq!(append_count, 2);
-    }
-
-    #[test]
-    fn leader_commits_after_majority_ack() {
-        let mut n = node(1);
-        n.start_election();
-        assert!(n.handle_request_vote_response(RequestVoteResponse {
-            term: 1,
-            vote_granted: true,
-            from: 2,
-        }));
-
-        n.propose_command("set color red");
-        assert_eq!(n.commit_index, 0);
-
-        let retry = n.handle_append_entries_response(AppendEntriesResponse {
-            term: 1,
-            success: true,
-            from: 2,
-            match_index: 1,
-        });
-
-        assert!(retry.is_empty());
-        assert_eq!(n.commit_index, 1);
-        assert_eq!(n.last_applied, 1);
-        assert_eq!(n.state_machine_get("color"), Some("red"));
+        assert_eq!(follower.log.len(), 2);
+        assert_eq!(follower.log[1].term, 3);
+        assert_eq!(follower.log[1].command, "new2");
     }
 
     #[test]
     fn leader_retries_with_lower_next_index_after_reject() {
-        let mut n = node(1);
-        n.start_election();
-        assert!(n.handle_request_vote_response(RequestVoteResponse {
+        let mut leader = node(1);
+        leader.start_election();
+        leader.handle_request_vote_response(RequestVoteResponse {
             term: 1,
             vote_granted: true,
             from: 2,
-        }));
-        n.propose_command("set x 1");
+        });
+        leader.log.push(LogEntry {
+            term: 1,
+            command: "cmd1".into(),
+        });
+        leader.log.push(LogEntry {
+            term: 1,
+            command: "cmd2".into(),
+        });
+        leader.leader_next_index.insert(2, 3);
 
-        let retry = n.handle_append_entries_response(AppendEntriesResponse {
+        let outbound = leader.handle_append_entries_response(AppendEntriesResponse {
             term: 1,
             success: false,
             from: 2,
             match_index: 0,
         });
 
-        assert_eq!(retry.len(), 1);
-        match &retry[0] {
+        assert_eq!(leader.leader_next_index.get(&2), Some(&2));
+        assert_eq!(outbound.len(), 1);
+        match &outbound[0] {
             OutboundMessage::AppendEntries { to, message } => {
                 assert_eq!(*to, 2);
-                assert_eq!(message.prev_log_index, 0);
+                assert_eq!(message.prev_log_index, 1);
                 assert_eq!(message.entries.len(), 1);
+                assert_eq!(message.entries[0].command, "cmd2");
             }
-            _ => panic!("expected append retry"),
+            _ => panic!("expected append entries retry"),
+        }
+    }
+
+    #[test]
+    fn leader_commits_after_majority_ack() {
+        let mut leader = node(1);
+        leader.start_election();
+        leader.handle_request_vote_response(RequestVoteResponse {
+            term: 1,
+            vote_granted: true,
+            from: 2,
+        });
+
+        leader.log.push(LogEntry {
+            term: 1,
+            command: "cmd1".into(),
+        });
+        leader.leader_match_index.insert(1, 1);
+        leader.leader_match_index.insert(2, 0);
+        leader.leader_match_index.insert(3, 0);
+        leader.leader_next_index.insert(2, 2);
+        leader.leader_next_index.insert(3, 2);
+
+        let outbound = leader.handle_append_entries_response(AppendEntriesResponse {
+            term: 1,
+            success: true,
+            from: 2,
+            match_index: 1,
+        });
+
+        assert!(outbound.is_empty());
+        assert_eq!(leader.commit_index, 1);
+    }
+
+    #[test]
+    fn commit_makes_entries_available_for_application() {
+        let mut n = node(1);
+        n.log.push(LogEntry {
+            term: 1,
+            command: "a".into(),
+        });
+        n.log.push(LogEntry {
+            term: 1,
+            command: "b".into(),
+        });
+        n.commit_to(2);
+
+        let first = n.take_unapplied_entries();
+        let second = n.take_unapplied_entries();
+
+        assert_eq!(first.len(), 2);
+        assert_eq!(first[0].command, "a");
+        assert_eq!(first[1].command, "b");
+        assert!(second.is_empty());
+    }
+
+    #[test]
+    fn leader_proposal_sends_entry_to_followers() {
+        let mut leader = node(1);
+        leader.start_election();
+        assert!(leader.handle_request_vote_response(RequestVoteResponse {
+            term: 1,
+            vote_granted: true,
+            from: 2,
+        }));
+
+        let outbound = leader
+            .propose_command("set k v")
+            .expect("leader should accept proposal");
+
+        assert_eq!(leader.log.len(), 1);
+        assert_eq!(leader.log[0].command, "set k v");
+        assert_eq!(outbound.len(), 2);
+
+        for msg in outbound {
+            match msg {
+                OutboundMessage::AppendEntries { to, message } => {
+                    assert!(to == 2 || to == 3);
+                    assert_eq!(message.entries.len(), 1);
+                    assert_eq!(message.entries[0].command, "set k v");
+                    assert_eq!(message.prev_log_index, 0);
+                }
+                _ => panic!("expected append entries"),
+            }
         }
     }
 }

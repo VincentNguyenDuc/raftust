@@ -1,0 +1,7 @@
+[package]
+name = "raftust-core-state-machine-key-value"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+raftust-core = { path = "../raftust-core" }
