@@ -26,3 +26,24 @@ This approach makes it easier to:
 ## Project Direction
 
 The repository is organized to keep the protocol core minimal and keep optional capabilities modular. As the project evolves, this structure supports adding new integrations while preserving a stable consensus foundation.
+
+## Examples
+
+The `raftust-examples` package contains runnable binaries that show different stack combinations.
+
+- `grpc_in_memory`: gRPC transport with in-memory storage
+- `https_file`: HTTPS transport with file-backed storage
+
+Run examples with:
+
+```bash
+cargo run -p raftust-examples --bin grpc_in_memory -- --id <id> --addr <host:port> --peer <id=host:port> [--peer ...]
+cargo run -p raftust-examples --bin https_file -- --id <id> --addr <host:port> --peer <id=host:port> [--peer ...]
+```
+
+Common runtime commands after startup:
+
+- `status`
+- `election`
+- `propose <value>`
+- `quit`

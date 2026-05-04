@@ -1082,6 +1082,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "raftust-core-state-machine-key-value"
+version = "0.1.0"
+dependencies = [
+ "raftust-core",
+]
+
+[[package]]
 name = "raftust-core-storage-file"
 version = "0.1.0"
 dependencies = [
@@ -1102,7 +1109,10 @@ name = "raftust-examples"
 version = "0.1.0"
 dependencies = [
  "raftust-core",
+ "raftust-core-comm-grpc",
  "raftust-core-comm-https",
+ "raftust-core-state-machine-key-value",
+ "raftust-core-storage-file",
  "raftust-core-storage-in-memory",
 ]
 

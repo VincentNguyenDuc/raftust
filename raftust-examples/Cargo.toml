@@ -5,5 +5,8 @@ edition = "2024"
 
 [dependencies]
 raftust-core = { path = "../raftust-core" }
+raftust-core-comm-grpc = { path = "../raftust-core-comm-grpc" }
 raftust-core-comm-https = { path = "../raftust-core-comm-https" }
+raftust-core-state-machine-key-value = { path = "../raftust-core-state-machine-key-value" }
+raftust-core-storage-file = { path = "../raftust-core-storage-file" }
 raftust-core-storage-in-memory = { path = "../raftust-core-storage-in-memory" }
