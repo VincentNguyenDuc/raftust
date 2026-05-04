@@ -1096,6 +1096,7 @@ name = "raftust-core-state-machine-key-value"
 version = "0.1.0"
 dependencies = [
  "raftust-core",
+ "serde_json",
 ]
 
 [[package]]

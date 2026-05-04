@@ -25,6 +25,8 @@ services:
             - "40"
             - --heartbeat-interval
             - "4"
+            - --log-compaction-threshold
+            - "128"
         ports:
             - "5001:5001"
         volumes:
@@ -64,6 +66,8 @@ services:
             - "40"
             - --heartbeat-interval
             - "4"
+            - --log-compaction-threshold
+            - "128"
         ports:
             - "5002:5002"
         volumes:
@@ -103,6 +107,8 @@ services:
             - "40"
             - --heartbeat-interval
             - "4"
+            - --log-compaction-threshold
+            - "128"
         ports:
             - "5003:5003"
         volumes:
@@ -142,6 +148,8 @@ services:
             - "40"
             - --heartbeat-interval
             - "4"
+            - --log-compaction-threshold
+            - "128"
         ports:
             - "5004:5004"
         volumes:
@@ -181,6 +189,8 @@ services:
             - "40"
             - --heartbeat-interval
             - "4"
+            - --log-compaction-threshold
+            - "128"
         ports:
             - "5005:5005"
         volumes:

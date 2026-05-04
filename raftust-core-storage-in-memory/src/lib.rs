@@ -47,6 +47,9 @@ mod tests {
                 command: command.to_string(),
             }],
             commit_index,
+            last_included_index: 0,
+            last_included_term: 0,
+            state_machine_snapshot: Vec::new(),
         }
     }
 
@@ -69,6 +72,12 @@ mod tests {
         assert_eq!(loaded.voted_for, original.voted_for);
         assert_eq!(loaded.log, original.log);
         assert_eq!(loaded.commit_index, original.commit_index);
+        assert_eq!(loaded.last_included_index, original.last_included_index);
+        assert_eq!(loaded.last_included_term, original.last_included_term);
+        assert_eq!(
+            loaded.state_machine_snapshot,
+            original.state_machine_snapshot
+        );
     }
 
     #[test]

@@ -149,13 +149,58 @@ where
                     self.apply_committed_entries();
                     self.persist();
                 }
-                RaftMessage::InstallSnapshot(_req) => {
+                RaftMessage::InstallSnapshot(req) => {
+                    if req.term < self.node.current_term {
+                        self.send_or_log(
+                            msg.from,
+                            RaftMessage::InstallSnapshotResponse(InstallSnapshotResponse {
+                                term: self.node.current_term,
+                                from: self.node.id,
+                                success: false,
+                            }),
+                        );
+                        continue;
+                    }
+
+                    if let Err(err) = self.state_machine.restore(&req.data) {
+                        eprintln!("install snapshot restore error: {}", err);
+                        self.send_or_log(
+                            msg.from,
+                            RaftMessage::InstallSnapshotResponse(InstallSnapshotResponse {
+                                term: self.node.current_term,
+                                from: self.node.id,
+                                success: false,
+                            }),
+                        );
+                        continue;
+                    }
+
+                    self.node.restore_from_storage(
+                        req.term,
+                        None,
+                        Vec::new(),
+                        req.last_included_index,
+                        req.last_included_index,
+                        req.last_included_term,
+                    );
+                    self.node.leader_id = Some(req.leader_id);
+                    self.storage.save(StorageSnapshot {
+                        node_id: self.node.id,
+                        current_term: self.node.current_term,
+                        voted_for: self.node.voted_for,
+                        log: self.node.log.clone(),
+                        commit_index: self.node.commit_index,
+                        last_included_index: self.node.snapshot_last_included_index,
+                        last_included_term: self.node.snapshot_last_included_term,
+                        state_machine_snapshot: req.data,
+                    });
+
                     self.send_or_log(
                         msg.from,
                         RaftMessage::InstallSnapshotResponse(InstallSnapshotResponse {
                             term: self.node.current_term,
                             from: self.node.id,
-                            success: false,
+                            success: true,
                         }),
                     );
                 }
@@ -171,14 +216,17 @@ where
             Command::Shutdown => return false,
             Command::Status => {
                 println!(
-                    "id={} role={:?} term={} leader={:?} log_len={} commit_index={} last_applied={} sm={}",
+                    "id={} role={:?} term={} leader={:?} log_len={} snapshot_index={} snapshot_term={} commit_index={} last_applied={} compaction_threshold={} sm={}",
                     self.node.id,
                     self.node.role,
                     self.node.current_term,
                     self.node.leader_id,
                     self.node.log.len(),
+                    self.node.snapshot_last_included_index,
+                    self.node.snapshot_last_included_term,
                     self.node.commit_index,
                     self.node.last_applied,
+                    self.config.log_compaction_threshold,
                     self.state_machine.describe(),
                 );
             }
@@ -233,7 +281,22 @@ where
     }
 
     fn persist(&mut self) {
-        self.storage.save(StorageSnapshot::from_node(&self.node));
+        self.maybe_compact_log();
+        self.storage.save(StorageSnapshot::from_node(
+            &self.node,
+            self.state_machine.snapshot(),
+        ));
+    }
+
+    fn maybe_compact_log(&mut self) {
+        if self.node.log.len() >= self.config.log_compaction_threshold
+            && self.node.compact_committed()
+        {
+            println!(
+                "node {} compacted log at index {}",
+                self.node.id, self.node.snapshot_last_included_index
+            );
+        }
     }
 
     fn apply_committed_entries(&mut self) {
@@ -243,10 +306,16 @@ where
     }
 
     fn restore_from_snapshot(&mut self, snapshot: StorageSnapshot) {
-        self.node.current_term = snapshot.current_term;
-        self.node.voted_for = snapshot.voted_for;
-        self.node.log = snapshot.log;
-        self.node.commit_index = snapshot.commit_index.min(self.node.log.len());
-        self.node.last_applied = 0;
+        if let Err(err) = self.state_machine.restore(&snapshot.state_machine_snapshot) {
+            eprintln!("state machine restore error: {}", err);
+        }
+        self.node.restore_from_storage(
+            snapshot.current_term,
+            snapshot.voted_for,
+            snapshot.log,
+            snapshot.commit_index,
+            snapshot.last_included_index,
+            snapshot.last_included_term,
+        );
     }
 }

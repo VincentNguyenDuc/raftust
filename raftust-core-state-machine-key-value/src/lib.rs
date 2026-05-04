@@ -60,6 +60,21 @@ impl StateMachineStrategy for KeyValueStateMachine {
     fn describe(&self) -> String {
         format!("{:?}", self.state)
     }
+
+    fn snapshot(&self) -> Vec<u8> {
+        serde_json::to_vec(&self.state).unwrap_or_default()
+    }
+
+    fn restore(&mut self, snapshot: &[u8]) -> Result<(), String> {
+        if snapshot.is_empty() {
+            self.state.clear();
+            return Ok(());
+        }
+
+        self.state =
+            serde_json::from_slice(snapshot).map_err(|err| format!("restore snapshot: {}", err))?;
+        Ok(())
+    }
 }
 
 enum StateMachineCommand {
@@ -115,5 +130,23 @@ mod tests {
         sm.apply("del missing");
 
         assert!(sm.describe().contains("\"color\": \"blue\""));
+    }
+
+    #[test]
+    fn snapshot_roundtrip_restores_state() {
+        let mut original = KeyValueStateMachine::new();
+        original.apply("set color blue");
+        original.apply("set size large");
+
+        let bytes = original.snapshot();
+
+        let mut restored = KeyValueStateMachine::new();
+        restored
+            .restore(&bytes)
+            .expect("restore should succeed for valid snapshot bytes");
+
+        let restored_desc = restored.describe();
+        assert!(restored_desc.contains("\"color\": \"blue\""));
+        assert!(restored_desc.contains("\"size\": \"large\""));
     }
 }

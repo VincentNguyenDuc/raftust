@@ -81,6 +81,12 @@ struct PersistedSnapshot {
     voted_for: Option<NodeId>,
     log: Vec<PersistedLogEntry>,
     commit_index: usize,
+    #[serde(default)]
+    last_included_index: usize,
+    #[serde(default)]
+    last_included_term: u64,
+    #[serde(default)]
+    state_machine_snapshot: Vec<u8>,
 }
 
 impl From<StorageSnapshot> for PersistedSnapshot {
@@ -98,6 +104,9 @@ impl From<StorageSnapshot> for PersistedSnapshot {
                 })
                 .collect(),
             commit_index: snapshot.commit_index,
+            last_included_index: snapshot.last_included_index,
+            last_included_term: snapshot.last_included_term,
+            state_machine_snapshot: snapshot.state_machine_snapshot,
         }
     }
 }
@@ -117,6 +126,9 @@ impl From<PersistedSnapshot> for StorageSnapshot {
                 })
                 .collect(),
             commit_index: snapshot.commit_index,
+            last_included_index: snapshot.last_included_index,
+            last_included_term: snapshot.last_included_term,
+            state_machine_snapshot: snapshot.state_machine_snapshot,
         }
     }
 }
@@ -157,6 +169,9 @@ mod tests {
                 },
             ],
             commit_index: 2,
+            last_included_index: 0,
+            last_included_term: 0,
+            state_machine_snapshot: b"kv-json".to_vec(),
         };
 
         storage.save(snapshot.clone());
@@ -166,6 +181,12 @@ mod tests {
         assert_eq!(loaded.current_term, snapshot.current_term);
         assert_eq!(loaded.voted_for, snapshot.voted_for);
         assert_eq!(loaded.commit_index, snapshot.commit_index);
+        assert_eq!(loaded.last_included_index, snapshot.last_included_index);
+        assert_eq!(loaded.last_included_term, snapshot.last_included_term);
+        assert_eq!(
+            loaded.state_machine_snapshot,
+            snapshot.state_machine_snapshot
+        );
         assert_eq!(loaded.log.len(), 2);
         assert_eq!(loaded.log[1].command, "set size large");
 

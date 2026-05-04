@@ -38,9 +38,9 @@ The `raftust-examples` package contains runnable binaries that show different st
 Run examples with:
 
 ```bash
-cargo run -p raftust-examples --bin grpc_in_memory -- --id <id> --addr <host:port> --peer <id=host:port> [--peer ...] --election-timeout-min 20 --election-timeout-max 40 --heartbeat-interval 4
-cargo run -p raftust-examples --bin https_file -- --id <id> --addr <host:port> --peer <id=host:port> [--peer ...] --election-timeout-min 20 --election-timeout-max 40 --heartbeat-interval 4
-cargo run -p raftust-examples --bin grpc_counter -- --id <id> --addr <host:port> --peer <id=host:port> [--peer ...] --election-timeout-min 20 --election-timeout-max 40 --heartbeat-interval 4
+cargo run -p raftust-examples --bin grpc_in_memory -- --id <id> --addr <host:port> --peer <id=host:port> [--peer ...] --election-timeout-min 20 --election-timeout-max 40 --heartbeat-interval 4 --log-compaction-threshold 128
+cargo run -p raftust-examples --bin https_file -- --id <id> --addr <host:port> --peer <id=host:port> [--peer ...] --election-timeout-min 20 --election-timeout-max 40 --heartbeat-interval 4 --log-compaction-threshold 128
+cargo run -p raftust-examples --bin grpc_counter -- --id <id> --addr <host:port> --peer <id=host:port> [--peer ...] --election-timeout-min 20 --election-timeout-max 40 --heartbeat-interval 4 --log-compaction-threshold 128
 ```
 
 Timing options:
@@ -48,6 +48,7 @@ Timing options:
 - `--election-timeout-min <ticks>`: minimum election timeout
 - `--election-timeout-max <ticks>`: maximum election timeout
 - `--heartbeat-interval <ticks>`: heartbeat interval, must be less than election-timeout-min
+- `--log-compaction-threshold <n>`: compact committed log prefix when in-memory log length reaches `n`
 
 ## Docker
 

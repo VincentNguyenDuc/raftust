@@ -64,6 +64,23 @@ impl StateMachineStrategy for CounterStateMachine {
     fn describe(&self) -> String {
         format!("counter={}", self.value)
     }
+
+    fn snapshot(&self) -> Vec<u8> {
+        self.value.to_string().into_bytes()
+    }
+
+    fn restore(&mut self, snapshot: &[u8]) -> Result<(), String> {
+        if snapshot.is_empty() {
+            self.value = 0;
+            return Ok(());
+        }
+
+        let raw = std::str::from_utf8(snapshot).map_err(|err| format!("utf8 snapshot: {}", err))?;
+        self.value = raw
+            .parse::<i64>()
+            .map_err(|err| format!("parse counter snapshot: {}", err))?;
+        Ok(())
+    }
 }
 
 enum CounterCommand {
@@ -142,5 +159,29 @@ mod tests {
         sm.apply(&format!("set {}", i64::MIN));
         sm.apply("dec");
         assert_eq!(sm.value(), i64::MIN);
+    }
+
+    #[test]
+    fn snapshot_roundtrip_restores_counter_value() {
+        let mut original = CounterStateMachine::new();
+        original.apply("set 42");
+
+        let bytes = original.snapshot();
+
+        let mut restored = CounterStateMachine::new();
+        restored
+            .restore(&bytes)
+            .expect("restore should parse valid counter snapshot");
+
+        assert_eq!(restored.value(), 42);
+    }
+
+    #[test]
+    fn restore_rejects_invalid_snapshot_bytes() {
+        let mut sm = CounterStateMachine::new();
+        let err = sm
+            .restore(b"not-a-number")
+            .expect_err("invalid bytes must fail");
+        assert!(err.contains("parse counter snapshot"));
     }
 }

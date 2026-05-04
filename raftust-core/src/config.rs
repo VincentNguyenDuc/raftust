@@ -11,6 +11,7 @@ pub struct Config {
     pub election_timeout_max_ticks: u64,
     pub heartbeat_interval_ticks: u64,
     pub tick_ms: u64,
+    pub log_compaction_threshold: usize,
 }
 
 pub fn parse_config(args: Vec<String>) -> Result<Config, String> {
@@ -21,6 +22,7 @@ pub fn parse_config(args: Vec<String>) -> Result<Config, String> {
     let mut election_timeout_max_ticks = 40;
     let mut heartbeat_interval_ticks = 4;
     let mut tick_ms = 100;
+    let mut log_compaction_threshold = 128usize;
 
     let mut i = 0;
     while i < args.len() {
@@ -78,6 +80,15 @@ pub fn parse_config(args: Vec<String>) -> Result<Config, String> {
                     .map_err(|_| "invalid --tick-ms value")?;
                 i += 2;
             }
+            "--log-compaction-threshold" => {
+                let value = args
+                    .get(i + 1)
+                    .ok_or("--log-compaction-threshold requires a value")?;
+                log_compaction_threshold = value
+                    .parse::<usize>()
+                    .map_err(|_| "invalid --log-compaction-threshold value")?;
+                i += 2;
+            }
             "--help" | "-h" => {
                 return Err(help_text());
             }
@@ -106,6 +117,10 @@ pub fn parse_config(args: Vec<String>) -> Result<Config, String> {
         return Err("heartbeat interval must be less than election timeout min".to_string());
     }
 
+    if log_compaction_threshold == 0 {
+        return Err("log compaction threshold must be greater than zero".to_string());
+    }
+
     Ok(Config {
         id,
         addr,
@@ -114,6 +129,7 @@ pub fn parse_config(args: Vec<String>) -> Result<Config, String> {
         election_timeout_max_ticks,
         heartbeat_interval_ticks,
         tick_ms,
+        log_compaction_threshold,
     })
 }
 
@@ -130,6 +146,7 @@ fn help_text() -> String {
         "  --election-timeout-max <ticks> Election timeout maximum in ticks (default: 40)",
         "  --heartbeat-interval <ticks> Heartbeat interval in ticks (default: 4)",
         "  --tick-ms <ms>              Tick duration in ms (default: 100)",
+        "  --log-compaction-threshold <n> Compact when in-memory log length reaches n (default: 128)",
         "",
         "Example (3 nodes on localhost):",
         "  raftust-core --id 1 --addr 127.0.0.1:5001 --peer 2=127.0.0.1:5002 --peer 3=127.0.0.1:5003",
