@@ -2,6 +2,7 @@ use super::types::{
     AppendEntries, AppendEntriesResponse, LogEntry, NodeId, OutboundMessage, RequestVote,
     RequestVoteResponse, Role, Term,
 };
+use rand::Rng;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug)]
@@ -19,7 +20,9 @@ pub struct RaftNode {
     leader_match_index: HashMap<NodeId, usize>,
     votes_received: HashSet<NodeId>,
     election_elapsed: u64,
-    election_timeout: u64,
+    election_timeout_min: u64,
+    election_timeout_max: u64,
+    current_election_timeout: u64,
     heartbeat_elapsed: u64,
     heartbeat_interval: u64,
 }
@@ -28,9 +31,16 @@ impl RaftNode {
     pub fn new(
         id: NodeId,
         peers: Vec<NodeId>,
-        election_timeout: u64,
+        election_timeout_min: u64,
+        election_timeout_max: u64,
         heartbeat_interval: u64,
     ) -> Self {
+        assert!(election_timeout_min > 0);
+        assert!(election_timeout_max >= election_timeout_min);
+
+        let current_election_timeout =
+            Self::sample_election_timeout(election_timeout_min, election_timeout_max);
+
         Self {
             id,
             peers,
@@ -45,7 +55,9 @@ impl RaftNode {
             leader_match_index: HashMap::new(),
             votes_received: HashSet::new(),
             election_elapsed: 0,
-            election_timeout,
+            election_timeout_min,
+            election_timeout_max,
+            current_election_timeout,
             heartbeat_elapsed: 0,
             heartbeat_interval,
         }
@@ -68,7 +80,7 @@ impl RaftNode {
             }
             Role::Follower | Role::Candidate => {
                 self.election_elapsed += 1;
-                if self.election_elapsed >= self.election_timeout {
+                if self.election_elapsed >= self.current_election_timeout {
                     self.start_election()
                 } else {
                     Vec::new()
@@ -83,6 +95,8 @@ impl RaftNode {
         self.voted_for = Some(self.id);
         self.leader_id = None;
         self.election_elapsed = 0;
+        self.current_election_timeout =
+            Self::sample_election_timeout(self.election_timeout_min, self.election_timeout_max);
         self.votes_received.clear();
         self.votes_received.insert(self.id);
 
@@ -126,6 +140,8 @@ impl RaftNode {
         if grant {
             self.voted_for = Some(req.candidate_id);
             self.election_elapsed = 0;
+            self.current_election_timeout =
+                Self::sample_election_timeout(self.election_timeout_min, self.election_timeout_max);
         }
 
         RequestVoteResponse {
@@ -298,8 +314,18 @@ impl RaftNode {
         self.leader_next_index.clear();
         self.leader_match_index.clear();
         self.election_elapsed = 0;
+        self.current_election_timeout =
+            Self::sample_election_timeout(self.election_timeout_min, self.election_timeout_max);
         self.heartbeat_elapsed = 0;
         self.leader_id = leader;
+    }
+
+    fn sample_election_timeout(min_ticks: u64, max_ticks: u64) -> u64 {
+        if min_ticks == max_ticks {
+            return min_ticks;
+        }
+
+        rand::thread_rng().gen_range(min_ticks..=max_ticks)
     }
 
     fn become_leader(&mut self) {
@@ -394,7 +420,7 @@ mod tests {
             .into_iter()
             .filter(|peer| *peer != id)
             .collect::<Vec<_>>();
-        RaftNode::new(id, peers, 3, 1)
+        RaftNode::new(id, peers, 3, 3, 1)
     }
 
     #[test]

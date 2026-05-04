@@ -20,11 +20,12 @@ fn run() -> Result<(), String> {
     let config = parse_config(env::args().skip(1).collect())?;
 
     println!(
-        "node={} addr={} peers={} transport=grpc storage=in-memory election_timeout_ticks={} heartbeat_ticks={} tick_ms={}",
+        "node={} addr={} peers={} transport=grpc storage=in-memory election_timeout_ticks={}..={} heartbeat_ticks={} tick_ms={}",
         config.id,
         config.addr,
         config.peer_addrs.len(),
-        config.election_timeout_ticks,
+        config.election_timeout_min_ticks,
+        config.election_timeout_max_ticks,
         config.heartbeat_interval_ticks,
         config.tick_ms
     );

@@ -23,11 +23,12 @@ fn run() -> Result<(), String> {
     let storage_dir = format!("{}/node-{}", storage_root, config.id);
 
     println!(
-        "node={} addr={} peers={} transport=https storage=file election_timeout_ticks={} heartbeat_ticks={} tick_ms={} storage_dir={}",
+        "node={} addr={} peers={} transport=https storage=file election_timeout_ticks={}..={} heartbeat_ticks={} tick_ms={} storage_dir={}",
         config.id,
         config.addr,
         config.peer_addrs.len(),
-        config.election_timeout_ticks,
+        config.election_timeout_min_ticks,
+        config.election_timeout_max_ticks,
         config.heartbeat_interval_ticks,
         config.tick_ms,
         storage_dir,

@@ -19,6 +19,12 @@ services:
             - 4=node4:5004
             - --peer
             - 5=node5:5005
+            - --election-timeout-min
+            - "20"
+            - --election-timeout-max
+            - "40"
+            - --heartbeat-interval
+            - "4"
         ports:
             - "5001:5001"
         volumes:
@@ -52,6 +58,12 @@ services:
             - 4=node4:5004
             - --peer
             - 5=node5:5005
+            - --election-timeout-min
+            - "20"
+            - --election-timeout-max
+            - "40"
+            - --heartbeat-interval
+            - "4"
         ports:
             - "5002:5002"
         volumes:
@@ -85,6 +97,12 @@ services:
             - 4=node4:5004
             - --peer
             - 5=node5:5005
+            - --election-timeout-min
+            - "20"
+            - --election-timeout-max
+            - "40"
+            - --heartbeat-interval
+            - "4"
         ports:
             - "5003:5003"
         volumes:
@@ -118,6 +136,12 @@ services:
             - 3=node3:5003
             - --peer
             - 5=node5:5005
+            - --election-timeout-min
+            - "20"
+            - --election-timeout-max
+            - "40"
+            - --heartbeat-interval
+            - "4"
         ports:
             - "5004:5004"
         volumes:
@@ -151,6 +175,12 @@ services:
             - 3=node3:5003
             - --peer
             - 4=node4:5004
+            - --election-timeout-min
+            - "20"
+            - --election-timeout-max
+            - "40"
+            - --heartbeat-interval
+            - "4"
         ports:
             - "5005:5005"
         volumes:

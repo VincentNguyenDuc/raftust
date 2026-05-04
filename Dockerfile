@@ -18,3 +18,4 @@ RUN apt-get update \
 COPY --from=builder /https_file /usr/local/bin/https_file
 
 ENTRYPOINT ["/usr/local/bin/https_file"]
+CMD ["--help"]

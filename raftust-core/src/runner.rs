@@ -50,7 +50,8 @@ where
         let node = RaftNode::new(
             config.id,
             peers,
-            config.election_timeout_ticks,
+            config.election_timeout_min_ticks,
+            config.election_timeout_max_ticks,
             config.heartbeat_interval_ticks,
         );
 

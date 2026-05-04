@@ -33,12 +33,35 @@ The `raftust-examples` package contains runnable binaries that show different st
 
 - `grpc_in_memory`: gRPC transport with in-memory storage
 - `https_file`: HTTPS transport with file-backed storage
+- `grpc_counter`: gRPC transport with in-memory storage and counter state machine
 
 Run examples with:
 
 ```bash
-cargo run -p raftust-examples --bin grpc_in_memory -- --id <id> --addr <host:port> --peer <id=host:port> [--peer ...]
-cargo run -p raftust-examples --bin https_file -- --id <id> --addr <host:port> --peer <id=host:port> [--peer ...]
+cargo run -p raftust-examples --bin grpc_in_memory -- --id <id> --addr <host:port> --peer <id=host:port> [--peer ...] --election-timeout-min 20 --election-timeout-max 40 --heartbeat-interval 4
+cargo run -p raftust-examples --bin https_file -- --id <id> --addr <host:port> --peer <id=host:port> [--peer ...] --election-timeout-min 20 --election-timeout-max 40 --heartbeat-interval 4
+cargo run -p raftust-examples --bin grpc_counter -- --id <id> --addr <host:port> --peer <id=host:port> [--peer ...] --election-timeout-min 20 --election-timeout-max 40 --heartbeat-interval 4
+```
+
+Timing options:
+
+- `--election-timeout-min <ticks>`: minimum election timeout
+- `--election-timeout-max <ticks>`: maximum election timeout
+- `--heartbeat-interval <ticks>`: heartbeat interval, must be less than election-timeout-min
+
+## Docker
+
+Build and run the HTTPS example directly:
+
+```bash
+docker build -t raftust .
+docker run --rm -it raftust --help
+```
+
+Run the 5-node HTTPS cluster with persistent per-node storage:
+
+```bash
+docker compose up --build
 ```
 
 Common runtime commands after startup:

@@ -7,7 +7,8 @@ pub struct Config {
     pub id: NodeId,
     pub addr: String,
     pub peer_addrs: HashMap<NodeId, String>,
-    pub election_timeout_ticks: u64,
+    pub election_timeout_min_ticks: u64,
+    pub election_timeout_max_ticks: u64,
     pub heartbeat_interval_ticks: u64,
     pub tick_ms: u64,
 }
@@ -16,7 +17,8 @@ pub fn parse_config(args: Vec<String>) -> Result<Config, String> {
     let mut id: Option<NodeId> = None;
     let mut addr: Option<String> = None;
     let mut peer_addrs = HashMap::new();
-    let mut election_timeout_ticks = 20;
+    let mut election_timeout_min_ticks = 20;
+    let mut election_timeout_max_ticks = 40;
     let mut heartbeat_interval_ticks = 4;
     let mut tick_ms = 100;
 
@@ -42,13 +44,22 @@ pub fn parse_config(args: Vec<String>) -> Result<Config, String> {
                 peer_addrs.insert(peer_id, peer_addr.to_string());
                 i += 2;
             }
-            "--election-timeout" => {
+            "--election-timeout-min" => {
                 let value = args
                     .get(i + 1)
-                    .ok_or("--election-timeout requires a value")?;
-                election_timeout_ticks = value
+                    .ok_or("--election-timeout-min requires a value")?;
+                election_timeout_min_ticks = value
                     .parse::<u64>()
-                    .map_err(|_| "invalid --election-timeout value")?;
+                    .map_err(|_| "invalid --election-timeout-min value")?;
+                i += 2;
+            }
+            "--election-timeout-max" => {
+                let value = args
+                    .get(i + 1)
+                    .ok_or("--election-timeout-max requires a value")?;
+                election_timeout_max_ticks = value
+                    .parse::<u64>()
+                    .map_err(|_| "invalid --election-timeout-max value")?;
                 i += 2;
             }
             "--heartbeat-interval" => {
@@ -83,15 +94,24 @@ pub fn parse_config(args: Vec<String>) -> Result<Config, String> {
         return Err("--peer cannot include this node's own id".to_string());
     }
 
-    if heartbeat_interval_ticks >= election_timeout_ticks {
-        return Err("heartbeat interval must be less than election timeout".to_string());
+    if election_timeout_min_ticks == 0 {
+        return Err("election timeout min must be greater than zero".to_string());
+    }
+
+    if election_timeout_max_ticks < election_timeout_min_ticks {
+        return Err("election timeout max must be greater than or equal to min".to_string());
+    }
+
+    if heartbeat_interval_ticks >= election_timeout_min_ticks {
+        return Err("heartbeat interval must be less than election timeout min".to_string());
     }
 
     Ok(Config {
         id,
         addr,
         peer_addrs,
-        election_timeout_ticks,
+        election_timeout_min_ticks,
+        election_timeout_max_ticks,
         heartbeat_interval_ticks,
         tick_ms,
     })
@@ -106,7 +126,8 @@ fn help_text() -> String {
         "  --id <u64>                  Node ID",
         "  --addr <host:port>          Listen address for this node",
         "  --peer <id=host:port>       Peer mapping (repeatable)",
-        "  --election-timeout <ticks>  Election timeout in ticks (default: 20)",
+        "  --election-timeout-min <ticks> Election timeout minimum in ticks (default: 20)",
+        "  --election-timeout-max <ticks> Election timeout maximum in ticks (default: 40)",
         "  --heartbeat-interval <ticks> Heartbeat interval in ticks (default: 4)",
         "  --tick-ms <ms>              Tick duration in ms (default: 100)",
         "",
