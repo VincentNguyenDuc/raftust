@@ -2,6 +2,7 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 
+use log::{debug, warn};
 use serde::{Deserialize, Serialize};
 
 use raftust_core::{LogEntry, NodeId, StorageSnapshot, StorageStrategy};
@@ -33,7 +34,17 @@ impl FileStorage {
         let path = self.snapshot_path(node_id);
         let raw = fs::read_to_string(path).ok()?;
         let persisted = serde_json::from_str::<PersistedSnapshot>(&raw).ok()?;
-        Some(persisted.into())
+        let snapshot: StorageSnapshot = persisted.into();
+        debug!(
+            "event=storage_file_load_ok node_id={} commit_index={} log_len={} snapshot_index={} snapshot_term={} dir={}",
+            snapshot.node_id,
+            snapshot.commit_index,
+            snapshot.log.len(),
+            snapshot.last_included_index,
+            snapshot.last_included_term,
+            self.directory.display()
+        );
+        Some(snapshot)
     }
 
     fn save_snapshot_file(&self, snapshot: StorageSnapshot) -> Result<(), String> {
@@ -52,18 +63,35 @@ impl FileStorage {
         file.sync_all().map_err(|err| err.to_string())?;
 
         fs::rename(tmp_path, final_path).map_err(|err| err.to_string())?;
+        debug!(
+            "event=storage_file_save_ok node_id={} commit_index={} log_len={} snapshot_index={} snapshot_term={} dir={}",
+            node_id,
+            persisted.commit_index,
+            persisted.log.len(),
+            persisted.last_included_index,
+            persisted.last_included_term,
+            self.directory.display()
+        );
         Ok(())
     }
 }
 
 impl StorageStrategy for FileStorage {
     fn load(&self, node_id: NodeId) -> Option<StorageSnapshot> {
-        self.load_snapshot_file(node_id)
+        let loaded = self.load_snapshot_file(node_id);
+        if loaded.is_none() {
+            debug!(
+                "event=storage_file_load_miss node_id={} dir={}",
+                node_id,
+                self.directory.display()
+            );
+        }
+        loaded
     }
 
     fn save(&mut self, snapshot: StorageSnapshot) {
         if let Err(err) = self.save_snapshot_file(snapshot) {
-            eprintln!("file storage save error: {err}");
+            warn!("event=storage_file_save_error err={}", err);
         }
     }
 }
@@ -81,6 +109,12 @@ struct PersistedSnapshot {
     voted_for: Option<NodeId>,
     log: Vec<PersistedLogEntry>,
     commit_index: usize,
+    #[serde(default)]
+    last_included_index: usize,
+    #[serde(default)]
+    last_included_term: u64,
+    #[serde(default)]
+    state_machine_snapshot: Vec<u8>,
 }
 
 impl From<StorageSnapshot> for PersistedSnapshot {
@@ -98,6 +132,9 @@ impl From<StorageSnapshot> for PersistedSnapshot {
                 })
                 .collect(),
             commit_index: snapshot.commit_index,
+            last_included_index: snapshot.last_included_index,
+            last_included_term: snapshot.last_included_term,
+            state_machine_snapshot: snapshot.state_machine_snapshot,
         }
     }
 }
@@ -117,6 +154,9 @@ impl From<PersistedSnapshot> for StorageSnapshot {
                 })
                 .collect(),
             commit_index: snapshot.commit_index,
+            last_included_index: snapshot.last_included_index,
+            last_included_term: snapshot.last_included_term,
+            state_machine_snapshot: snapshot.state_machine_snapshot,
         }
     }
 }
@@ -157,6 +197,9 @@ mod tests {
                 },
             ],
             commit_index: 2,
+            last_included_index: 0,
+            last_included_term: 0,
+            state_machine_snapshot: b"kv-json".to_vec(),
         };
 
         storage.save(snapshot.clone());
@@ -166,6 +209,12 @@ mod tests {
         assert_eq!(loaded.current_term, snapshot.current_term);
         assert_eq!(loaded.voted_for, snapshot.voted_for);
         assert_eq!(loaded.commit_index, snapshot.commit_index);
+        assert_eq!(loaded.last_included_index, snapshot.last_included_index);
+        assert_eq!(loaded.last_included_term, snapshot.last_included_term);
+        assert_eq!(
+            loaded.state_machine_snapshot,
+            snapshot.state_machine_snapshot
+        );
         assert_eq!(loaded.log.len(), 2);
         assert_eq!(loaded.log[1].command, "set size large");
 

@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 raftust-core = { path = "../raftust-core" }
+serde_json = "1"

@@ -6,9 +6,9 @@ use std::thread;
 use log::{error, info, warn};
 use raftust_core::config::parse_config;
 use raftust_core::runner::{Command, Runner};
-use raftust_core_comm_https::HttpsCommunication;
-use raftust_core_state_machine_key_value::KeyValueStateMachine;
-use raftust_core_storage_file::FileStorage;
+use raftust_core_comm_grpc::GrpcCommunication;
+use raftust_core_state_machine_counter::CounterStateMachine;
+use raftust_core_storage_in_memory::InMemoryStorage;
 
 fn main() {
     init_logging();
@@ -26,12 +26,9 @@ fn init_logging() {
 
 fn run() -> Result<(), String> {
     let config = parse_config(env::args().skip(1).collect())?;
-    let storage_root =
-        env::var("RAFTUST_STORAGE_DIR").unwrap_or_else(|_| ".raftust-data".to_string());
-    let storage_dir = format!("{}/node-{}", storage_root, config.id);
 
     info!(
-        "example.start node={} addr={} peers={} transport=https storage=file election_timeout_ticks={}..={} heartbeat_ticks={} tick_ms={} compaction_threshold={} storage_dir={}",
+        "example.start node={} addr={} peers={} transport=grpc storage=in-memory state-machine=counter election_timeout_ticks={}..={} heartbeat_ticks={} tick_ms={} compaction_threshold={}",
         config.id,
         config.addr,
         config.peer_addrs.len(),
@@ -39,10 +36,10 @@ fn run() -> Result<(), String> {
         config.election_timeout_max_ticks,
         config.heartbeat_interval_ticks,
         config.tick_ms,
-        config.log_compaction_threshold,
-        storage_dir,
+        config.log_compaction_threshold
     );
     info!("commands: status | election | propose <value> | quit");
+    info!("counter proposals: inc | dec | add <n> | set <n> | reset");
 
     let (command_tx, command_rx) = mpsc::channel::<Command>();
     thread::spawn(move || {
@@ -68,9 +65,9 @@ fn run() -> Result<(), String> {
         }
     });
 
-    let communication = HttpsCommunication::new(config.id, config.peer_addrs.clone());
-    let storage = FileStorage::new(storage_dir);
-    let state_machine = KeyValueStateMachine::new();
+    let communication = GrpcCommunication::new(config.id, config.peer_addrs.clone());
+    let storage = InMemoryStorage::new();
+    let state_machine = CounterStateMachine::new();
     let mut runner = Runner::new(config, communication, storage, state_machine);
     runner.run(command_rx).map_err(|err| err.to_string())
 }

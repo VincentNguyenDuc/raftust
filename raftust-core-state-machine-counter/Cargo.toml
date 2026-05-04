@@ -1,8 +1,7 @@
 [package]
-name = "raftust-core-storage-in-memory"
+name = "raftust-core-state-machine-counter"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-log = "0.4"
 raftust-core = { path = "../raftust-core" }

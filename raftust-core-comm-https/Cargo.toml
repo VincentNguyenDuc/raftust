@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 axum = "0.7"
 hyper-util = { version = "0.1", features = ["tokio", "server-auto", "http1"] }
+log = "0.4"
 raftust-core = { path = "../raftust-core" }
 rcgen = "0.13"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking", "json"] }
