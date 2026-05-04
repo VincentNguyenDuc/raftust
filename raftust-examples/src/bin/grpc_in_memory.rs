@@ -3,6 +3,7 @@ use std::io::{BufRead, BufReader};
 use std::sync::mpsc;
 use std::thread;
 
+use log::{error, info, warn};
 use raftust_core::config::parse_config;
 use raftust_core::runner::{Command, Runner};
 use raftust_core_comm_grpc::GrpcCommunication;
@@ -10,26 +11,34 @@ use raftust_core_state_machine_key_value::KeyValueStateMachine;
 use raftust_core_storage_in_memory::InMemoryStorage;
 
 fn main() {
+    init_logging();
     if let Err(err) = run() {
-        eprintln!("fatal: {err}");
+        error!("fatal: {}", err);
         std::process::exit(1);
     }
+}
+
+fn init_logging() {
+    let _ = env_logger::Builder::from_env(env_logger::Env::default().filter_or("RUST_LOG", "info"))
+        .format_timestamp_millis()
+        .try_init();
 }
 
 fn run() -> Result<(), String> {
     let config = parse_config(env::args().skip(1).collect())?;
 
-    println!(
-        "node={} addr={} peers={} transport=grpc storage=in-memory election_timeout_ticks={}..={} heartbeat_ticks={} tick_ms={}",
+    info!(
+        "example.start node={} addr={} peers={} transport=grpc storage=in-memory election_timeout_ticks={}..={} heartbeat_ticks={} tick_ms={} compaction_threshold={}",
         config.id,
         config.addr,
         config.peer_addrs.len(),
         config.election_timeout_min_ticks,
         config.election_timeout_max_ticks,
         config.heartbeat_interval_ticks,
-        config.tick_ms
+        config.tick_ms,
+        config.log_compaction_threshold
     );
-    println!("commands: status | election | propose <value> | quit");
+    info!("commands: status | election | propose <value> | quit");
 
     let (command_tx, command_rx) = mpsc::channel::<Command>();
     thread::spawn(move || {
@@ -49,7 +58,7 @@ fn run() -> Result<(), String> {
                     }
                 }
                 None => {
-                    eprintln!("unknown command; try: status | election | propose <value> | quit")
+                    warn!("unknown command; try: status | election | propose <value> | quit")
                 }
             }
         }

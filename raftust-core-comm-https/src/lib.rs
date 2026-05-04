@@ -7,6 +7,7 @@ use std::thread;
 use axum::{Json, Router, extract::State, routing::post};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder as AutoBuilder;
+use log::{debug, error, info, warn};
 use reqwest::blocking::Client;
 use rustls::ServerConfig;
 use tokio::net::TcpListener;
@@ -71,7 +72,9 @@ async fn handle_raft(
     State(tx): State<Arc<SyncSender<WireMessage>>>,
     Json(msg): Json<WireMessage>,
 ) -> axum::http::StatusCode {
-    let _ = tx.try_send(msg);
+    if let Err(err) = tx.try_send(msg) {
+        warn!("event=https_listener_queue_full err={}", err);
+    }
     axum::http::StatusCode::OK
 }
 
@@ -86,6 +89,7 @@ impl RaftCommunication for HttpsCommunication {
 
         let (tx, rx) = mpsc::sync_channel::<WireMessage>(256);
         let tx = Arc::new(tx);
+        let listen_address = address.clone();
 
         thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
@@ -94,6 +98,7 @@ impl RaftCommunication for HttpsCommunication {
                 .expect("build tokio runtime for HTTPS server");
 
             rt.block_on(async move {
+                info!("event=https_listener_start addr={}", listen_address);
                 let cert_chain = vec![rustls::pki_types::CertificateDer::from(cert_der)];
                 let private_key =
                     rustls::pki_types::PrivateKeyDer::try_from(key_der).expect("valid private key");
@@ -109,14 +114,14 @@ impl RaftCommunication for HttpsCommunication {
                     .route("/raft", post(handle_raft))
                     .with_state(Arc::clone(&tx));
 
-                let addr: SocketAddr = address.parse().expect("parse listen address");
+                let addr: SocketAddr = listen_address.parse().expect("parse listen address");
                 let listener = TcpListener::bind(addr).await.expect("bind HTTPS listener");
 
                 loop {
                     let (tcp_stream, _) = match listener.accept().await {
                         Ok(v) => v,
                         Err(e) => {
-                            eprintln!("[https] accept error: {}", e);
+                            warn!("event=https_listener_accept_error addr={} err={}", addr, e);
                             continue;
                         }
                     };
@@ -128,16 +133,18 @@ impl RaftCommunication for HttpsCommunication {
                         let tls_stream = match tls_acceptor.accept(tcp_stream).await {
                             Ok(s) => s,
                             Err(e) => {
-                                eprintln!("[https] TLS handshake error: {}", e);
+                                warn!("event=https_listener_tls_handshake_error err={}", e);
                                 return;
                             }
                         };
                         let io = TokioIo::new(tls_stream);
                         let hyper_svc = hyper_util::service::TowerToHyperService::new(svc);
-                        AutoBuilder::new(TokioExecutor::new())
+                        if let Err(err) = AutoBuilder::new(TokioExecutor::new())
                             .serve_connection(io, hyper_svc)
                             .await
-                            .ok();
+                        {
+                            debug!("event=https_listener_connection_closed err={}", err);
+                        }
                     });
                 }
             });
@@ -150,6 +157,12 @@ impl RaftCommunication for HttpsCommunication {
 
         self.inbound_rx = Some(rx);
         self.http_client = Some(client);
+        info!(
+            "event=https_communication_started node_id={} address={} peer_count={}",
+            self.local_id,
+            address,
+            self.peer_urls.len()
+        );
         Ok(())
     }
 
@@ -160,7 +173,13 @@ impl RaftCommunication for HttpsCommunication {
             .ok_or(CommunicationError::NotStarted)?;
 
         match rx.try_recv() {
-            Ok(msg) => Ok(Some(wire::wire_to_message(msg))),
+            Ok(msg) => {
+                debug!(
+                    "event=https_poll_inbound node_id={} peer_id={}",
+                    self.local_id, msg.from
+                );
+                Ok(Some(wire::wire_to_message(msg)))
+            }
             Err(TryRecvError::Empty) => Ok(None),
             Err(TryRecvError::Disconnected) => Err(CommunicationError::Disconnected),
         }
@@ -169,21 +188,52 @@ impl RaftCommunication for HttpsCommunication {
     fn send(&mut self, to: NodeId, message: RaftMessage) -> SendOutcome {
         let client = match &self.http_client {
             Some(c) => c,
-            None => return SendOutcome::Dropped("not started".to_string()),
+            None => {
+                warn!(
+                    "event=https_send_drop_not_started node_id={} peer_id={}",
+                    self.local_id, to
+                );
+                return SendOutcome::Dropped("not started".to_string());
+            }
         };
 
         let url = match self.peer_urls.get(&to) {
             Some(u) => u.clone(),
-            None => return SendOutcome::Dropped(format!("peer {} not configured", to)),
+            None => {
+                warn!(
+                    "event=https_send_drop_unconfigured_peer node_id={} peer_id={}",
+                    self.local_id, to
+                );
+                return SendOutcome::Dropped(format!("peer {} not configured", to));
+            }
         };
 
         let wire_msg = wire::message_to_wire(self.local_id, to, message);
         match client.post(&url).json(&wire_msg).send() {
-            Ok(resp) if resp.status().is_success() => SendOutcome::Sent,
+            Ok(resp) if resp.status().is_success() => {
+                debug!(
+                    "event=https_send_ok node_id={} peer_id={} url={}",
+                    self.local_id, to, url
+                );
+                SendOutcome::Sent
+            }
             Ok(resp) => {
+                warn!(
+                    "event=https_send_drop_http_status node_id={} peer_id={} url={} status={}",
+                    self.local_id,
+                    to,
+                    url,
+                    resp.status()
+                );
                 SendOutcome::Dropped(format!("peer {} returned HTTP {}", to, resp.status()))
             }
-            Err(e) => SendOutcome::Dropped(format!("send to peer {}: {}", to, e)),
+            Err(e) => {
+                error!(
+                    "event=https_send_error node_id={} peer_id={} url={} err={}",
+                    self.local_id, to, url, e
+                );
+                SendOutcome::Dropped(format!("send to peer {}: {}", to, e))
+            }
         }
     }
 }

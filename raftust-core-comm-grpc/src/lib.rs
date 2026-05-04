@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
 use std::thread;
 
+use log::{debug, error, info, warn};
 use raftust_core::{
     AppendEntries, AppendEntriesResponse, CommunicationError, InboundMessage, InstallSnapshot,
     InstallSnapshotResponse, LogEntry, NodeId, RaftCommunication, RaftMessage, RequestVote,
@@ -55,13 +56,14 @@ impl GrpcCommunication {
                     .expect("build gRPC server runtime");
 
                 runtime.block_on(async move {
+                    info!("event=grpc_listener_start addr={}", addr);
                     let service = GrpcTransportService { tx };
                     if let Err(err) = Server::builder()
                         .add_service(RaftTransportServer::new(service))
                         .serve(addr)
                         .await
                     {
-                        eprintln!("[grpc] server error on {}: {}", addr, err);
+                        error!("event=grpc_listener_error addr={} err={}", addr, err);
                     }
                 });
             })
@@ -86,6 +88,12 @@ impl RaftCommunication for GrpcCommunication {
 
         self.inbound_rx = Some(rx);
         self.client_runtime = Some(runtime);
+        info!(
+            "event=grpc_communication_started node_id={} address={} peer_count={}",
+            self.local_id,
+            address,
+            self.peer_endpoints.len()
+        );
         Ok(())
     }
 
@@ -99,9 +107,17 @@ impl RaftCommunication for GrpcCommunication {
             match rx.try_recv() {
                 Ok(envelope) => {
                     if envelope.to != self.local_id {
+                        debug!(
+                            "event=grpc_poll_skip_wrong_recipient node_id={} envelope_to={} peer_id={}",
+                            self.local_id, envelope.to, envelope.from
+                        );
                         continue;
                     }
 
+                    debug!(
+                        "event=grpc_poll_inbound node_id={} peer_id={}",
+                        self.local_id, envelope.from
+                    );
                     return decode_envelope(envelope).map(Some);
                 }
                 Err(TryRecvError::Empty) => return Ok(None),
@@ -113,12 +129,24 @@ impl RaftCommunication for GrpcCommunication {
     fn send(&mut self, to: NodeId, message: RaftMessage) -> SendOutcome {
         let endpoint = match self.peer_endpoints.get(&to) {
             Some(endpoint) => endpoint.clone(),
-            None => return SendOutcome::Dropped(format!("peer {} is not configured", to)),
+            None => {
+                warn!(
+                    "event=grpc_send_drop_unconfigured_peer node_id={} peer_id={}",
+                    self.local_id, to
+                );
+                return SendOutcome::Dropped(format!("peer {} is not configured", to));
+            }
         };
 
         let runtime = match self.client_runtime.as_ref() {
             Some(runtime) => runtime,
-            None => return SendOutcome::Dropped("communication is not started".to_string()),
+            None => {
+                warn!(
+                    "event=grpc_send_drop_not_started node_id={} peer_id={}",
+                    self.local_id, to
+                );
+                return SendOutcome::Dropped("communication is not started".to_string());
+            }
         };
 
         let request = match encode_message(self.local_id, to, message) {
@@ -126,25 +154,38 @@ impl RaftCommunication for GrpcCommunication {
             Err(err) => return SendOutcome::Dropped(err.to_string()),
         };
 
+        let endpoint_for_request = endpoint.clone();
         let result = runtime.block_on(async move {
-            let mut client = RaftTransportClient::connect(endpoint.clone())
+            let mut client = RaftTransportClient::connect(endpoint_for_request.clone())
                 .await
-                .map_err(|err| format!("connect {}: {}", endpoint, err))?;
+                .map_err(|err| format!("connect {}: {}", endpoint_for_request, err))?;
 
             client
                 .send_message(Request::new(request))
                 .await
                 .map(|response| response.into_inner())
-                .map_err(|err| format!("send {}: {}", endpoint, err))
+                .map_err(|err| format!("send {}: {}", endpoint_for_request, err))
         });
 
         match result {
-            Ok(ack) if ack.accepted => SendOutcome::Sent,
+            Ok(ack) if ack.accepted => {
+                debug!(
+                    "event=grpc_send_ok node_id={} peer_id={} endpoint={}",
+                    self.local_id, to, endpoint
+                );
+                SendOutcome::Sent
+            }
             Ok(ack) => SendOutcome::Dropped(match ack.error.is_empty() {
                 true => format!("peer {} rejected the message", to),
                 false => ack.error,
             }),
-            Err(err) => SendOutcome::Dropped(err),
+            Err(err) => {
+                warn!(
+                    "event=grpc_send_drop_transport node_id={} peer_id={} endpoint={} err={}",
+                    self.local_id, to, endpoint, err
+                );
+                SendOutcome::Dropped(err)
+            }
         }
     }
 }
@@ -164,10 +205,13 @@ impl RaftTransport for GrpcTransportService {
                 accepted: true,
                 error: String::new(),
             })),
-            Err(err) => Ok(Response::new(TransportAck {
-                accepted: false,
-                error: format!("queue inbound message: {}", err),
-            })),
+            Err(err) => {
+                warn!("event=grpc_listener_queue_full err={}", err);
+                Ok(Response::new(TransportAck {
+                    accepted: false,
+                    error: format!("queue inbound message: {}", err),
+                }))
+            }
         }
     }
 }

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use log::debug;
 use raftust_core::{NodeId, StorageSnapshot, StorageStrategy};
 
 #[derive(Default)]
@@ -19,10 +20,25 @@ impl InMemoryStorage {
 
 impl StorageStrategy for InMemoryStorage {
     fn load(&self, node_id: NodeId) -> Option<StorageSnapshot> {
-        self.snapshots.get(&node_id).cloned()
+        let loaded = self.snapshots.get(&node_id).cloned();
+        debug!(
+            "event=storage_memory_load node_id={} hit={} stored_nodes={}",
+            node_id,
+            loaded.is_some(),
+            self.snapshots.len()
+        );
+        loaded
     }
 
     fn save(&mut self, snapshot: StorageSnapshot) {
+        debug!(
+            "event=storage_memory_save node_id={} commit_index={} log_len={} snapshot_index={} snapshot_term={}",
+            snapshot.node_id,
+            snapshot.commit_index,
+            snapshot.log.len(),
+            snapshot.last_included_index,
+            snapshot.last_included_term
+        );
         self.snapshots.insert(snapshot.node_id, snapshot);
     }
 }

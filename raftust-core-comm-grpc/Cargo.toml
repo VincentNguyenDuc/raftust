@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+log = "0.4"
 prost = "0.13"
 raftust-core = { path = "../raftust-core" }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync"] }

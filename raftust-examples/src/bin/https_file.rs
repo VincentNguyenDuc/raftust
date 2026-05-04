@@ -3,6 +3,7 @@ use std::io::{BufRead, BufReader};
 use std::sync::mpsc;
 use std::thread;
 
+use log::{error, info, warn};
 use raftust_core::config::parse_config;
 use raftust_core::runner::{Command, Runner};
 use raftust_core_comm_https::HttpsCommunication;
@@ -10,10 +11,17 @@ use raftust_core_state_machine_key_value::KeyValueStateMachine;
 use raftust_core_storage_file::FileStorage;
 
 fn main() {
+    init_logging();
     if let Err(err) = run() {
-        eprintln!("fatal: {err}");
+        error!("fatal: {}", err);
         std::process::exit(1);
     }
+}
+
+fn init_logging() {
+    let _ = env_logger::Builder::from_env(env_logger::Env::default().filter_or("RUST_LOG", "info"))
+        .format_timestamp_millis()
+        .try_init();
 }
 
 fn run() -> Result<(), String> {
@@ -22,8 +30,8 @@ fn run() -> Result<(), String> {
         env::var("RAFTUST_STORAGE_DIR").unwrap_or_else(|_| ".raftust-data".to_string());
     let storage_dir = format!("{}/node-{}", storage_root, config.id);
 
-    println!(
-        "node={} addr={} peers={} transport=https storage=file election_timeout_ticks={}..={} heartbeat_ticks={} tick_ms={} storage_dir={}",
+    info!(
+        "example.start node={} addr={} peers={} transport=https storage=file election_timeout_ticks={}..={} heartbeat_ticks={} tick_ms={} compaction_threshold={} storage_dir={}",
         config.id,
         config.addr,
         config.peer_addrs.len(),
@@ -31,9 +39,10 @@ fn run() -> Result<(), String> {
         config.election_timeout_max_ticks,
         config.heartbeat_interval_ticks,
         config.tick_ms,
+        config.log_compaction_threshold,
         storage_dir,
     );
-    println!("commands: status | election | propose <value> | quit");
+    info!("commands: status | election | propose <value> | quit");
 
     let (command_tx, command_rx) = mpsc::channel::<Command>();
     thread::spawn(move || {
@@ -53,7 +62,7 @@ fn run() -> Result<(), String> {
                     }
                 }
                 None => {
-                    eprintln!("unknown command; try: status | election | propose <value> | quit")
+                    warn!("unknown command; try: status | election | propose <value> | quit")
                 }
             }
         }

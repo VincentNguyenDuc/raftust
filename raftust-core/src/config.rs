@@ -12,6 +12,7 @@ pub struct Config {
     pub heartbeat_interval_ticks: u64,
     pub tick_ms: u64,
     pub log_compaction_threshold: usize,
+    pub report_metrics_interval_ticks: u64,
 }
 
 pub fn parse_config(args: Vec<String>) -> Result<Config, String> {
@@ -23,6 +24,7 @@ pub fn parse_config(args: Vec<String>) -> Result<Config, String> {
     let mut heartbeat_interval_ticks = 4;
     let mut tick_ms = 100;
     let mut log_compaction_threshold = 128usize;
+    let mut report_metrics_interval_ticks = 100;
 
     let mut i = 0;
     while i < args.len() {
@@ -89,6 +91,15 @@ pub fn parse_config(args: Vec<String>) -> Result<Config, String> {
                     .map_err(|_| "invalid --log-compaction-threshold value")?;
                 i += 2;
             }
+            "--report-metrics-interval" => {
+                let value = args
+                    .get(i + 1)
+                    .ok_or("--report-metrics-interval requires a value")?;
+                report_metrics_interval_ticks = value
+                    .parse::<u64>()
+                    .map_err(|_| "invalid --report-metrics-interval value")?;
+                i += 2;
+            }
             "--help" | "-h" => {
                 return Err(help_text());
             }
@@ -130,6 +141,7 @@ pub fn parse_config(args: Vec<String>) -> Result<Config, String> {
         heartbeat_interval_ticks,
         tick_ms,
         log_compaction_threshold,
+        report_metrics_interval_ticks,
     })
 }
 
@@ -147,6 +159,7 @@ fn help_text() -> String {
         "  --heartbeat-interval <ticks> Heartbeat interval in ticks (default: 4)",
         "  --tick-ms <ms>              Tick duration in ms (default: 100)",
         "  --log-compaction-threshold <n> Compact when in-memory log length reaches n (default: 128)",
+        "  --report-metrics-interval <ticks> Report metrics interval in ticks (default: 100)",
         "",
         "Example (3 nodes on localhost):",
         "  raftust-core --id 1 --addr 127.0.0.1:5001 --peer 2=127.0.0.1:5002 --peer 3=127.0.0.1:5003",

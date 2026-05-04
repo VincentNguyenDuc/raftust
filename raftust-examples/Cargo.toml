@@ -11,3 +11,5 @@ raftust-core-state-machine-counter = { path = "../raftust-core-state-machine-cou
 raftust-core-state-machine-key-value = { path = "../raftust-core-state-machine-key-value" }
 raftust-core-storage-file = { path = "../raftust-core-storage-file" }
 raftust-core-storage-in-memory = { path = "../raftust-core-storage-in-memory" }
+env_logger = "0.11"
+log = "0.4"

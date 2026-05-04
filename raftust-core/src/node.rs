@@ -2,6 +2,7 @@ use super::types::{
     AppendEntries, AppendEntriesResponse, LogEntry, NodeId, OutboundMessage, RequestVote,
     RequestVoteResponse, Role, Term,
 };
+use log::{debug, info, warn};
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 
@@ -105,6 +106,14 @@ impl RaftNode {
         self.votes_received.insert(self.id);
 
         let (last_log_index, last_log_term) = self.last_log_info();
+        info!(
+            "event=election_start node_id={} term={} last_log_index={} last_log_term={} peer_count={}",
+            self.id,
+            self.current_term,
+            last_log_index,
+            last_log_term,
+            self.peers.len()
+        );
 
         self.peers
             .iter()
@@ -146,6 +155,19 @@ impl RaftNode {
             self.election_elapsed = 0;
             self.current_election_timeout =
                 Self::sample_election_timeout(self.election_timeout_min, self.election_timeout_max);
+            debug!(
+                "event=vote_granted node_id={} term={} candidate_id={} candidate_last_log_index={} candidate_last_log_term={}",
+                self.id, self.current_term, req.candidate_id, req.last_log_index, req.last_log_term
+            );
+        } else {
+            debug!(
+                "event=vote_rejected node_id={} term={} candidate_id={} candidate_up_to_date={} voted_for={:?}",
+                self.id,
+                self.current_term,
+                req.candidate_id,
+                candidate_log_is_up_to_date,
+                self.voted_for
+            );
         }
 
         RequestVoteResponse {
@@ -194,6 +216,10 @@ impl RaftNode {
         self.election_elapsed = 0;
 
         if req.prev_log_index < self.snapshot_last_included_index {
+            warn!(
+                "event=append_reject_snapshot_gap node_id={} leader_id={} prev_log_index={} snapshot_index={}",
+                self.id, req.leader_id, req.prev_log_index, self.snapshot_last_included_index
+            );
             return AppendEntriesResponse {
                 term: self.current_term,
                 success: false,
@@ -203,6 +229,13 @@ impl RaftNode {
         }
 
         if req.prev_log_index > self.last_log_index() {
+            debug!(
+                "event=append_reject_missing_prev node_id={} leader_id={} prev_log_index={} last_log_index={}",
+                self.id,
+                req.leader_id,
+                req.prev_log_index,
+                self.last_log_index()
+            );
             return AppendEntriesResponse {
                 term: self.current_term,
                 success: false,
@@ -213,6 +246,14 @@ impl RaftNode {
 
         if req.prev_log_index > 0 {
             if self.term_at(req.prev_log_index) != Some(req.prev_log_term) {
+                debug!(
+                    "event=append_reject_term_mismatch node_id={} leader_id={} prev_log_index={} expected_prev_term={} actual_prev_term={:?}",
+                    self.id,
+                    req.leader_id,
+                    req.prev_log_index,
+                    req.prev_log_term,
+                    self.term_at(req.prev_log_index)
+                );
                 return AppendEntriesResponse {
                     term: self.current_term,
                     success: false,
@@ -243,6 +284,15 @@ impl RaftNode {
         if req.leader_commit > self.commit_index {
             self.commit_to(req.leader_commit.min(self.last_log_index()));
         }
+
+        debug!(
+            "event=append_applied node_id={} leader_id={} term={} log_len={} commit_index={}",
+            self.id,
+            req.leader_id,
+            self.current_term,
+            self.log.len(),
+            self.commit_index
+        );
 
         AppendEntriesResponse {
             term: self.current_term,
@@ -280,6 +330,10 @@ impl RaftNode {
             .unwrap_or(self.last_log_index() + 1);
         let new_next = current_next.saturating_sub(1).max(1);
         self.leader_next_index.insert(resp.from, new_next);
+        debug!(
+            "event=append_retry_backoff node_id={} peer_id={} old_next_index={} new_next_index={}",
+            self.id, resp.from, current_next, new_next
+        );
 
         match self.build_append_entries_for_peer(resp.from) {
             Some(message) => vec![OutboundMessage::AppendEntries {
@@ -357,6 +411,15 @@ impl RaftNode {
             self.last_applied = target_index;
         }
 
+        debug!(
+            "event=log_compacted node_id={} snapshot_index={} snapshot_term={} removed_entries={} remaining_entries={}",
+            self.id,
+            self.snapshot_last_included_index,
+            self.snapshot_last_included_term,
+            remove_count,
+            self.log.len()
+        );
+
         true
     }
 
@@ -388,6 +451,8 @@ impl RaftNode {
     }
 
     fn become_follower(&mut self, term: Term, leader: Option<NodeId>) {
+        let previous_role = self.role;
+        let previous_term = self.current_term;
         self.role = Role::Follower;
         self.current_term = term;
         self.voted_for = None;
@@ -399,6 +464,10 @@ impl RaftNode {
             Self::sample_election_timeout(self.election_timeout_min, self.election_timeout_max);
         self.heartbeat_elapsed = 0;
         self.leader_id = leader;
+        info!(
+            "event=role_change node_id={} from_role={:?} to_role={:?} old_term={} new_term={} leader_id={:?}",
+            self.id, previous_role, self.role, previous_term, self.current_term, self.leader_id
+        );
     }
 
     fn sample_election_timeout(min_ticks: u64, max_ticks: u64) -> u64 {
@@ -424,6 +493,13 @@ impl RaftNode {
             self.leader_match_index
                 .insert(*peer, self.snapshot_last_included_index);
         }
+        info!(
+            "event=role_change node_id={} to_role=Leader term={} next_index={} peer_count={}",
+            self.id,
+            self.current_term,
+            next,
+            self.peers.len()
+        );
     }
 
     fn build_heartbeat_messages(&self) -> Vec<OutboundMessage> {
@@ -485,7 +561,14 @@ impl RaftNode {
                 .count();
 
             if replicated >= self.majority() {
+                let previous_commit_index = self.commit_index;
                 self.commit_to(idx);
+                if self.commit_index != previous_commit_index {
+                    debug!(
+                        "event=commit_advanced node_id={} term={} old_commit_index={} new_commit_index={}",
+                        self.id, self.current_term, previous_commit_index, self.commit_index
+                    );
+                }
                 break;
             }
         }
